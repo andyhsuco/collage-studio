@@ -20,6 +20,7 @@ export function RightPanel() {
   const setCanvasRatio = useCollageStore((s) => s.setCanvasRatio);
   const setCustomDimensions = useCollageStore((s) => s.setCustomDimensions);
   const setGridRows = useCollageStore((s) => s.setGridRows);
+  const smartOrganize = useCollageStore((s) => s.smartOrganize);
   const imageCount = useCollageStore((s) => s.document.frameOrder.length);
   const enterCropMode = useCollageStore((s) => s.enterCropMode);
   const exitCropMode = useCollageStore((s) => s.exitCropMode);
@@ -85,6 +86,17 @@ export function RightPanel() {
 
       {imageCount >= MIN_PHOTOS && (
         <PanelSection title="Grid">
+          <Button
+            variant="primary"
+            className="w-full"
+            onClick={smartOrganize}
+          >
+            Smart organize
+          </Button>
+          <p className="text-[11px] text-zinc-600">
+            Keeps the full-bleed grid and picks the best row count and photo
+            order to reduce cropping.
+          </p>
           {(() => {
             const autoRows = computeBestGridLayout(
               imageCount,

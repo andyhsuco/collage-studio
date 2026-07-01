@@ -25,6 +25,7 @@ import { resolveAllRects } from "../lib/layout/splitTree";
 import { isImageFile } from "../lib/upload/extractImages";
 import { updateSplitRatio, snapRatio } from "../lib/layout/splitTree";
 import { copyCollagePngToClipboard, exportCollagePng } from "../lib/export/png";
+import { computeSmartOrganizePlan } from "../lib/layout/smartOrganize";
 
 const HISTORY_LIMIT = 50;
 
@@ -59,6 +60,7 @@ interface CollageState {
   setCanvasRatio: (ratio: CanvasRatio) => void;
   setCustomDimensions: (width: number, height: number) => void;
   setGridRows: (rows: number | null) => void;
+  smartOrganize: () => void;
   refreshLayoutOptions: () => void;
   undo: () => void;
   redo: () => void;
@@ -439,6 +441,32 @@ export const useCollageStore = create<CollageState>()(
         }
 
         clearManualGridLayout(state.document);
+        applyGridLayout(state);
+      });
+    },
+
+    smartOrganize: () => {
+      set((state) => {
+        const doc = state.document;
+        if (doc.frameOrder.length < MIN_PHOTOS) return;
+
+        const plan = computeSmartOrganizePlan(doc);
+        if (!plan) return;
+
+        pushHistory(state);
+
+        doc.gridRows = plan.rows;
+        doc.gridRowGroups = plan.rowGroups.map((row) => [...row]);
+        doc.frameOrder = flattenRowGroups(doc.gridRowGroups);
+
+        for (const frameId of doc.frameOrder) {
+          const frame = doc.frames[frameId];
+          if (!frame) continue;
+          frame.cropX = 0.5;
+          frame.cropY = 0.5;
+          frame.zoom = 1;
+        }
+
         applyGridLayout(state);
       });
     },
