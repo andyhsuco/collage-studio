@@ -5,6 +5,29 @@ export interface ImageDrawParams {
   drawH: number;
 }
 
+/** Visible fraction of image under object-fit cover (1 = no crop). */
+export function coverFillRatio(
+  frameAspect: number,
+  imageAspect: number,
+): number {
+  if (frameAspect <= 0 || imageAspect <= 0) return 1;
+  const ratio = frameAspect / imageAspect;
+  return ratio <= 1 ? ratio : 1 / ratio;
+}
+
+/** Zoom level that fits the full image inside the frame (letterboxing, no crop). */
+export function computeFitZoom(
+  imgW: number,
+  imgH: number,
+  frameW: number,
+  frameH: number,
+): number {
+  if (imgW <= 0 || imgH <= 0 || frameW <= 0 || frameH <= 0) return 1;
+  const frameAspect = frameW / frameH;
+  const imgAspect = imgW / imgH;
+  return coverFillRatio(frameAspect, imgAspect);
+}
+
 export function computeCoverDrawParams(
   imgW: number,
   imgH: number,
