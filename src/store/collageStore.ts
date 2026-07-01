@@ -13,7 +13,15 @@ import {
   MIN_PHOTOS,
 } from "../types";
 import { generateLayoutOptions } from "../lib/layout/autoLayout";
-import { applyLayoutForImages } from "../lib/layout/applyLayout";
+import { applyLayoutForImages, canvasAspect } from "../lib/layout/applyLayout";
+import { buildFilledGridTree } from "../lib/layout/templates";
+import {
+  flattenRowGroups,
+  getGridRowGroups,
+  moveFrameToRowAtGutter,
+  type RowDropTarget,
+} from "../lib/layout/gridRows";
+import { resolveAllRects } from "../lib/layout/splitTree";
 import { isImageFile } from "../lib/upload/extractImages";
 import { updateSplitRatio, snapRatio } from "../lib/layout/splitTree";
 import { copyCollagePngToClipboard, exportCollagePng } from "../lib/export/png";
@@ -32,6 +40,7 @@ interface CollageState {
   addImages: (files: File[]) => Promise<void>;
   removeImage: (imageId: string) => void;
   swapFrameImages: (frameIdA: string, frameIdB: string) => void;
+  moveFrameToRow: (frameId: string, target: RowDropTarget) => boolean;
   selectFrame: (frameId: string | null) => void;
   enterCropMode: (frameId: string) => void;
   exitCropMode: () => void;
@@ -49,6 +58,7 @@ interface CollageState {
   setBackgroundColor: (value: string) => void;
   setCanvasRatio: (ratio: CanvasRatio) => void;
   setCustomDimensions: (width: number, height: number) => void;
+  setGridRows: (rows: number | null) => void;
   refreshLayoutOptions: () => void;
   undo: () => void;
   redo: () => void;
@@ -68,6 +78,39 @@ function pushHistory(state: CollageState) {
     state.past.shift();
   }
   state.future = [];
+}
+
+function applyGridLayout(state: CollageState) {
+  const { document: doc } = state;
+  if (doc.frameOrder.length < MIN_PHOTOS) return;
+
+  const aspect = canvasAspect(doc);
+  const tree = buildFilledGridTree(
+    doc.frameOrder,
+    aspect,
+    doc.gridRows,
+    doc.gridRowGroups,
+  );
+  doc.layoutTree = tree;
+
+  const gridOption = state.layoutOptions.find((o) => o.name === "Grid");
+  if (gridOption) {
+    state.selectedPresetId = gridOption.id;
+    state.layoutOptions = state.layoutOptions.map((o) =>
+      o.name === "Grid" ? { ...o, tree } : o,
+    );
+  }
+}
+
+function clearManualGridLayout(doc: CollageDocument) {
+  doc.gridRowGroups = null;
+}
+
+function clampGridRows(doc: CollageDocument) {
+  const count = doc.frameOrder.length;
+  if (doc.gridRows != null && doc.gridRows > count) {
+    doc.gridRows = count;
+  }
 }
 
 function rebuildFramesForImages(
@@ -140,6 +183,7 @@ export const useCollageStore = create<CollageState>()(
         ];
 
         rebuildFramesForImages(state.document, allImageIds);
+        clampGridRows(state.document);
 
         const previousPresetId = state.selectedPresetId;
         const previousPresetName =
@@ -152,6 +196,7 @@ export const useCollageStore = create<CollageState>()(
           previousPresetId: hadPhotos ? null : previousPresetId,
           previousPresetName: hadPhotos ? null : previousPresetName,
         });
+        if (hadPhotos) clearManualGridLayout(state.document);
         state.document.layoutTree = layout.layoutTree;
         state.layoutOptions = layout.layoutOptions;
         state.selectedPresetId = layout.selectedPresetId;
@@ -193,6 +238,8 @@ export const useCollageStore = create<CollageState>()(
 
         const remainingIds = Object.keys(state.document.images);
         rebuildFramesForImages(state.document, remainingIds);
+        clampGridRows(state.document);
+        clearManualGridLayout(state.document);
 
         const layout = applyLayoutForImages(state.document);
         state.document.layoutTree = layout.layoutTree;
@@ -236,6 +283,35 @@ export const useCollageStore = create<CollageState>()(
       });
     },
 
+    moveFrameToRow: (frameId, target) => {
+      let moved = false;
+      set((state) => {
+        if (!state.document.layoutTree) return;
+
+        const rects = resolveAllRects(
+          state.document.layoutTree,
+          state.document.gutter,
+        );
+        const groups = getGridRowGroups(state.document);
+        const nextGroups = moveFrameToRowAtGutter(
+          groups,
+          frameId,
+          target,
+          rects,
+        );
+        if (!nextGroups) return;
+
+        pushHistory(state);
+
+        state.document.gridRowGroups = nextGroups;
+        state.document.gridRows = nextGroups.length;
+        state.document.frameOrder = flattenRowGroups(nextGroups);
+        applyGridLayout(state);
+        moved = true;
+      });
+      return moved;
+    },
+
     selectFrame: (frameId) => {
       set((state) => {
         state.selectedFrameId = frameId;
@@ -273,6 +349,9 @@ export const useCollageStore = create<CollageState>()(
         pushHistory(state);
         state.document.layoutTree = option.tree;
         state.selectedPresetId = option.id;
+        if (option.name !== "Grid" && option.name !== "Gallery") {
+          clearManualGridLayout(state.document);
+        }
       });
     },
 
@@ -343,6 +422,24 @@ export const useCollageStore = create<CollageState>()(
             height,
           );
         }
+      });
+    },
+
+    setGridRows: (rows) => {
+      set((state) => {
+        const count = state.document.frameOrder.length;
+        if (count < MIN_PHOTOS) return;
+
+        pushHistory(state);
+
+        if (rows == null) {
+          state.document.gridRows = null;
+        } else {
+          state.document.gridRows = Math.max(1, Math.min(count, Math.round(rows)));
+        }
+
+        clearManualGridLayout(state.document);
+        applyGridLayout(state);
       });
     },
 

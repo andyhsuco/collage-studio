@@ -22,7 +22,12 @@ function filledGridOption(
   options: ReturnType<typeof generateLayoutOptions>,
 ) {
   const aspect = canvasAspect(doc);
-  const tree = buildFilledGridTree(doc.frameOrder, aspect);
+  const tree = buildFilledGridTree(
+    doc.frameOrder,
+    aspect,
+    doc.gridRows,
+    doc.gridRowGroups,
+  );
   const base =
     options.find((o) => o.name === "Grid") ??
     options.find((o) => o.name === "Gallery") ??
@@ -120,7 +125,12 @@ export function rebalanceGridTree(
   frameIds: string[],
   doc: CollageDocument,
 ): SplitNode {
-  return buildFilledGridTree(frameIds, canvasAspect(doc));
+  return buildFilledGridTree(
+    frameIds,
+    canvasAspect(doc),
+    doc.gridRows,
+    doc.gridRowGroups,
+  );
 }
 
 export { createTreeFromTemplate };

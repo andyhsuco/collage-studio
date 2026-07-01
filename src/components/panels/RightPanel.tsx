@@ -1,5 +1,7 @@
 import type { CanvasRatio } from "../../types";
-import { PanelSection, Slider } from "../ui/primitives";
+import { getCanvasAspect, MIN_PHOTOS } from "../../types";
+import { computeBestGridLayout } from "../../lib/layout/balancedGrid";
+import { PanelSection, Slider, Button } from "../ui/primitives";
 import { useCollageStore } from "../../store/collageStore";
 
 const RATIO_OPTIONS: { value: CanvasRatio; label: string }[] = [
@@ -17,10 +19,12 @@ export function RightPanel() {
   const setBackgroundColor = useCollageStore((s) => s.setBackgroundColor);
   const setCanvasRatio = useCollageStore((s) => s.setCanvasRatio);
   const setCustomDimensions = useCollageStore((s) => s.setCustomDimensions);
-  const cropFrameId = useCollageStore((s) => s.cropFrameId);
+  const setGridRows = useCollageStore((s) => s.setGridRows);
+  const imageCount = useCollageStore((s) => s.document.frameOrder.length);
   const enterCropMode = useCollageStore((s) => s.enterCropMode);
   const exitCropMode = useCollageStore((s) => s.exitCropMode);
   const selectedFrameId = useCollageStore((s) => s.selectedFrameId);
+  const cropFrameId = useCollageStore((s) => s.cropFrameId);
 
   return (
     <aside className="flex w-60 shrink-0 flex-col gap-6 overflow-y-auto border-l border-zinc-800 bg-[var(--bg-panel)] p-4 lg:w-64">
@@ -78,6 +82,66 @@ export function RightPanel() {
           </div>
         )}
       </PanelSection>
+
+      {imageCount >= MIN_PHOTOS && (
+        <PanelSection title="Grid">
+          {(() => {
+            const autoRows = computeBestGridLayout(
+              imageCount,
+              getCanvasAspect(doc),
+            ).rows;
+            const effectiveRows = doc.gridRows ?? autoRows;
+            const isAuto = doc.gridRows === null;
+
+            return (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] text-zinc-400">Rows</span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-7 px-0"
+                      disabled={effectiveRows <= 1}
+                      onClick={() => setGridRows(effectiveRows - 1)}
+                      aria-label="Fewer rows"
+                    >
+                      −
+                    </Button>
+                    <span className="w-8 text-center text-[12px] tabular-nums text-zinc-200">
+                      {effectiveRows}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-7 px-0"
+                      disabled={effectiveRows >= imageCount}
+                      onClick={() => setGridRows(effectiveRows + 1)}
+                      aria-label="More rows"
+                    >
+                      +
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-zinc-600">
+                  {isAuto
+                    ? `${autoRows} rows chosen automatically`
+                    : "Manual row count"}
+                </p>
+                {!isAuto && (
+                  <button
+                    type="button"
+                    onClick={() => setGridRows(null)}
+                    className="self-start text-[11px] text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+                  >
+                    Reset to auto
+                  </button>
+                )}
+              </>
+            );
+          })()}
+        </PanelSection>
+      )}
 
       <PanelSection title="Spacing">
         <Slider

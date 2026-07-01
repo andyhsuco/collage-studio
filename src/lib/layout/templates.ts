@@ -3,6 +3,7 @@ import {
   chunkIds,
   computeBestGridLayout,
   distributeBalancedIds,
+  gridLayoutPlanForRows,
 } from "./balancedGrid";
 
 export type TemplateFactory = (
@@ -52,16 +53,31 @@ function stackVerticalEqual(nodes: SplitNode[]): SplitNode {
  * Grid layout: every row fills 100% width, photos in a row share width equally
  * (fewer photos in a row ⇒ each photo is wider).
  */
+export function buildGridTreeFromRowGroups(rowGroups: string[][]): SplitNode {
+  const rowNodes = rowGroups.map((group) => rowEqual(group));
+  if (rowNodes.length === 1) return rowNodes[0];
+  return stackVerticalEqual(rowNodes);
+}
+
 export function buildFilledGridTree(
   ids: string[],
   canvasAspect: number,
+  rowOverride?: number | null,
+  rowGroups?: string[][] | null,
 ): SplitNode {
-  const plan = computeBestGridLayout(ids.length, canvasAspect);
-  const rowGroups = plan.exact
+  if (rowGroups && rowGroups.length > 0) {
+    return buildGridTreeFromRowGroups(rowGroups);
+  }
+
+  const plan =
+    rowOverride != null
+      ? gridLayoutPlanForRows(ids.length, rowOverride)
+      : computeBestGridLayout(ids.length, canvasAspect);
+  const computedGroups = plan.exact
     ? chunkIds(ids, plan.cols)
     : distributeBalancedIds(ids, plan.rows);
 
-  const rowNodes = rowGroups.map((group) => rowEqual(group));
+  const rowNodes = computedGroups.map((group) => rowEqual(group));
   if (rowNodes.length === 1) return rowNodes[0];
   return stackVerticalEqual(rowNodes);
 }

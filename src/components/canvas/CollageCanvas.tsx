@@ -21,6 +21,14 @@ import {
 import { loadImage } from "../../lib/export/png";
 import { FrameOverlays } from "./FrameOverlays";
 import { SwapDragGhost, computeGhostSize } from "./SwapDragGhost";
+import {
+  findSourceRow,
+  getGridRowGroups,
+  isGridLikeLayout,
+  resolveVerticalGutterDrop,
+  verticalGutterMatchesDrop,
+  type RowDropTarget,
+} from "../../lib/layout/gridRows";
 import type { GutterHandle, Rect } from "../../types";
 
 type DragState =
@@ -78,6 +86,7 @@ export function CollageCanvas() {
   const [imagesLoaded, setImagesLoaded] = useState(0);
   const [hoveredFrameId, setHoveredFrameId] = useState<string | null>(null);
   const [swapTargetFrameId, setSwapTargetFrameId] = useState<string | null>(null);
+  const [rowDropTarget, setRowDropTarget] = useState<RowDropTarget | null>(null);
   const [swapSourceFrameId, setSwapSourceFrameId] = useState<string | null>(null);
   const [swapDragGhost, setSwapDragGhost] = useState<{
     imageSrc: string;
@@ -103,6 +112,12 @@ export function CollageCanvas() {
   const updateCrop = useCollageStore((s) => s.updateCrop);
   const removeImage = useCollageStore((s) => s.removeImage);
   const swapFrameImages = useCollageStore((s) => s.swapFrameImages);
+  const moveFrameToRow = useCollageStore((s) => s.moveFrameToRow);
+  const selectedPresetId = useCollageStore((s) => s.selectedPresetId);
+  const layoutOptions = useCollageStore((s) => s.layoutOptions);
+  const selectedPresetName =
+    layoutOptions.find((o) => o.id === selectedPresetId)?.name ?? null;
+  const gridRowDragEnabled = isGridLikeLayout(selectedPresetName);
 
   const aspect = getCanvasAspect(document_);
 
@@ -234,13 +249,29 @@ export function CollageCanvas() {
       document_.layoutTree,
       document_.gutter,
     );
+    let rowDropHandle: GutterHandle | null = null;
+    if (!cropFrameId && rowDropTarget != null && gridRowDragEnabled) {
+      const groups = getGridRowGroups(document_);
+      for (const handle of handles) {
+        if (
+          handle.axis === "v" &&
+          verticalGutterMatchesDrop(handle, rowDropTarget, groups, rects)
+        ) {
+          rowDropHandle = handle;
+          break;
+        }
+      }
+    }
     if (!cropFrameId) {
       for (const handle of handles) {
         const hx = handle.x * w;
         const hy = handle.y * h;
         const hw = handle.width * w;
         const hh = handle.height * h;
-        ctx.fillStyle = "rgba(255,255,255,0.08)";
+        ctx.fillStyle =
+          handle === rowDropHandle
+            ? "rgba(255,255,255,0.35)"
+            : "rgba(255,255,255,0.08)";
         ctx.fillRect(hx, hy, hw, hh);
       }
     }
@@ -251,6 +282,8 @@ export function CollageCanvas() {
     cropFrameId,
     imagesLoaded, // trigger redraw when images decode
     swapSourceFrameId,
+    rowDropTarget,
+    gridRowDragEnabled,
   ]);
 
   useEffect(() => {
@@ -396,10 +429,30 @@ export function CollageCanvas() {
             prev ? { ...prev, x: e.clientX, y: e.clientY } : prev,
           );
           const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+          const handles = getAllGutterHandles(
+            document_.layoutTree,
+            document_.gutter,
+          );
+          const gutterHit = hitTestGutter(handles, x, y);
+
+          if (gridRowDragEnabled && gutterHit?.axis === "v") {
+            const groups = getGridRowGroups(document_);
+            const drop = resolveVerticalGutterDrop(gutterHit, groups, rects);
+            const sourceRow = findSourceRow(groups, dragRef.current.frameId);
+            if (drop != null && sourceRow !== drop.rowIndex) {
+              setRowDropTarget(drop);
+              setSwapTargetFrameId(null);
+              setCursor("col-resize");
+              return;
+            }
+          }
+
+          setRowDropTarget(null);
           const target = hitTestFrame(rects, x, y);
           setSwapTargetFrameId(
             target && target !== dragRef.current.frameId ? target : null,
           );
+          setCursor(target ? "grabbing" : "grabbing");
         }
         return;
       }
@@ -465,6 +518,7 @@ export function CollageCanvas() {
       updateCrop,
       canvasSize,
       prepareHistory,
+      gridRowDragEnabled,
     ],
   );
 
@@ -481,19 +535,52 @@ export function CollageCanvas() {
       ) {
         const { x, y } = toNormalized(e.clientX, e.clientY);
         const rects = resolveAllRects(document_.layoutTree, document_.gutter);
-        const target = hitTestFrame(rects, x, y);
-        if (target && target !== dragRef.current.frameId) {
-          swapFrameImages(dragRef.current.frameId, target);
+        let movedToRow = false;
+        const frameId = dragRef.current.frameId;
+
+        const tryRowMove = (drop: RowDropTarget | null) => {
+          if (!drop) return false;
+          const groups = getGridRowGroups(document_);
+          const sourceRow = findSourceRow(groups, frameId);
+          if (sourceRow === drop.rowIndex) return false;
+          return moveFrameToRow(frameId, drop);
+        };
+
+        if (gridRowDragEnabled) {
+          if (rowDropTarget != null) {
+            movedToRow = tryRowMove(rowDropTarget);
+          }
+          if (!movedToRow) {
+            const handles = getAllGutterHandles(
+              document_.layoutTree,
+              document_.gutter,
+            );
+            const gutterHit = hitTestGutter(handles, x, y);
+            if (gutterHit?.axis === "v") {
+              const groups = getGridRowGroups(document_);
+              movedToRow = tryRowMove(
+                resolveVerticalGutterDrop(gutterHit, groups, rects),
+              );
+            }
+          }
+        }
+
+        if (!movedToRow) {
+          const target = hitTestFrame(rects, x, y);
+          if (target && target !== dragRef.current.frameId) {
+            swapFrameImages(dragRef.current.frameId, target);
+          }
         }
       }
 
       dragRef.current = null;
       setSwapSourceFrameId(null);
       setSwapTargetFrameId(null);
+      setRowDropTarget(null);
       setSwapDragGhost(null);
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     },
-    [document_.layoutTree, document_.gutter, toNormalized, swapFrameImages],
+    [document_.layoutTree, document_.gutter, toNormalized, swapFrameImages, moveFrameToRow, gridRowDragEnabled, rowDropTarget],
   );
 
   const handlePointerLeave = useCallback((e: React.PointerEvent) => {
@@ -502,6 +589,7 @@ export function CollageCanvas() {
     }
     setHoveredFrameId(null);
     setSwapDragGhost(null);
+    setRowDropTarget(null);
     if (dragRef.current) {
       dragRef.current = null;
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);

@@ -48,6 +48,20 @@ function scoreUnevenLayout(
   return emptyCells * 50 + aspectScore(gridAspect, canvasAspect) * 3 + colVariance * 0.75;
 }
 
+/** Build a grid plan for a specific row count. */
+export function gridLayoutPlanForRows(
+  count: number,
+  rows: number,
+): GridLayoutPlan {
+  const clampedRows = Math.max(1, Math.min(count, Math.round(rows)));
+  if (count % clampedRows === 0) {
+    return { rows: clampedRows, cols: count / clampedRows, exact: true };
+  }
+  const groups = distributeBalancedIndices(count, clampedRows);
+  const maxCols = Math.max(...groups.map((g) => g.length));
+  return { rows: clampedRows, cols: maxCols, exact: false };
+}
+
 /** Pick grid dimensions that tile every photo with no unused cells when possible. */
 export function computeBestGridLayout(
   count: number,

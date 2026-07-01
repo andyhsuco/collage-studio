@@ -43,6 +43,10 @@ export interface CollageDocument {
   canvasRatio: CanvasRatio;
   customWidth: number;
   customHeight: number;
+  /** Manual grid row count; null uses automatic layout. */
+  gridRows: number | null;
+  /** Explicit grid row grouping; null derives rows from frame order. */
+  gridRowGroups: string[][] | null;
 }
 
 export interface LayoutOption {
@@ -90,5 +94,7 @@ export function createDefaultDocument(): CollageDocument {
     canvasRatio: "1:1",
     customWidth: 1080,
     customHeight: 1080,
+    gridRows: null,
+    gridRowGroups: null,
   };
 }
