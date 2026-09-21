@@ -173,7 +173,7 @@ export function CollageCanvas() {
     ctx.fillStyle = document_.backgroundColor;
     ctx.fillRect(0, 0, w, h);
 
-    const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+    const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
     const radius =
       document_.borderRadius * (w / 800);
 
@@ -248,6 +248,7 @@ export function CollageCanvas() {
     const handles = getAllGutterHandles(
       document_.layoutTree,
       document_.gutter,
+      document_.canvasPadding,
     );
     let rowDropHandle: GutterHandle | null = null;
     if (!cropFrameId && rowDropTarget != null && gridRowDragEnabled) {
@@ -328,6 +329,7 @@ export function CollageCanvas() {
       const handles = getAllGutterHandles(
         document_.layoutTree,
         document_.gutter,
+        document_.canvasPadding,
       );
       const gutter = hitTestGutter(handles, x, y);
       if (gutter) {
@@ -345,7 +347,7 @@ export function CollageCanvas() {
         }
       }
 
-      const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+      const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
       const frameId = hitTestFrame(rects, x, y);
       if (frameId) {
         selectFrame(frameId);
@@ -374,6 +376,7 @@ export function CollageCanvas() {
           document_.layoutTree,
           dragRef.current.path,
           document_.gutter,
+          document_.canvasPadding,
         );
         const split = getSplitAtPath(
           document_.layoutTree,
@@ -405,7 +408,7 @@ export function CollageCanvas() {
 
           const frame = document_.frames[dragRef.current.frameId];
           const image = frame ? document_.images[frame.imageId] : null;
-          const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+          const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
           const rect = rects.get(dragRef.current.frameId);
           if (image && rect) {
             const pw = rect.width * canvasSize.width;
@@ -428,10 +431,11 @@ export function CollageCanvas() {
           setSwapDragGhost((prev) =>
             prev ? { ...prev, x: e.clientX, y: e.clientY } : prev,
           );
-          const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+          const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
           const handles = getAllGutterHandles(
             document_.layoutTree,
             document_.gutter,
+            document_.canvasPadding,
           );
           const gutterHit = hitTestGutter(handles, x, y);
 
@@ -462,7 +466,7 @@ export function CollageCanvas() {
           dragRef.current;
         const frame = document_.frames[frameId];
         const image = document_.images[frame?.imageId ?? ""];
-        const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+        const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
         const rect = rects.get(frameId);
         if (!frame || !image || !rect) return;
 
@@ -497,6 +501,7 @@ export function CollageCanvas() {
       const handles = getAllGutterHandles(
         document_.layoutTree,
         document_.gutter,
+        document_.canvasPadding,
       );
       const gutter = hitTestGutter(handles, x, y);
       if (gutter) {
@@ -505,7 +510,7 @@ export function CollageCanvas() {
         return;
       }
 
-      const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+      const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
       const frameId = hitTestFrame(rects, x, y);
       setHoveredFrameId(frameId);
       setCursor(frameId ? "grab" : "default");
@@ -534,7 +539,7 @@ export function CollageCanvas() {
         document_.layoutTree
       ) {
         const { x, y } = toNormalized(e.clientX, e.clientY);
-        const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+        const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
         let movedToRow = false;
         const frameId = dragRef.current.frameId;
 
@@ -554,6 +559,7 @@ export function CollageCanvas() {
             const handles = getAllGutterHandles(
               document_.layoutTree,
               document_.gutter,
+              document_.canvasPadding,
             );
             const gutterHit = hitTestGutter(handles, x, y);
             if (gutterHit?.axis === "v") {
@@ -580,7 +586,7 @@ export function CollageCanvas() {
       setSwapDragGhost(null);
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     },
-    [document_.layoutTree, document_.gutter, toNormalized, swapFrameImages, moveFrameToRow, gridRowDragEnabled, rowDropTarget],
+    [document_.layoutTree, document_.gutter, document_.canvasPadding, toNormalized, swapFrameImages, moveFrameToRow, gridRowDragEnabled, rowDropTarget],
   );
 
   const handlePointerLeave = useCallback((e: React.PointerEvent) => {
@@ -600,7 +606,7 @@ export function CollageCanvas() {
     (e: React.MouseEvent) => {
       if (!document_.layoutTree) return;
       const { x, y } = toNormalized(e.clientX, e.clientY);
-      const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+      const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
       const frameId = hitTestFrame(rects, x, y);
       if (frameId) {
         enterCropMode(frameId);
@@ -615,7 +621,7 @@ export function CollageCanvas() {
       e.preventDefault();
       const frame = document_.frames[cropFrameId];
       const image = document_.images[frame?.imageId ?? ""];
-      const rects = resolveAllRects(document_.layoutTree, document_.gutter);
+      const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
       const rect = rects.get(cropFrameId);
       if (!frame || !image || !rect) return;
 
@@ -703,6 +709,7 @@ export function CollageCanvas() {
           frames={document_.frames}
           layoutTree={document_.layoutTree}
           gutter={document_.gutter}
+          padding={document_.canvasPadding}
           canvasWidth={canvasSize.width}
           canvasHeight={canvasSize.height}
           hoveredFrameId={hoveredFrameId}

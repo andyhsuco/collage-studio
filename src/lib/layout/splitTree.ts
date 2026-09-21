@@ -1,12 +1,13 @@
 import type { GutterHandle, Rect, SplitNode } from "../../types";
 
-/** Content area inset so outer edge padding matches internal gutter width. */
-export function canvasContentBounds(gutter: number): Rect {
+/** Content area inset by canvas padding, independent of the internal gutter. */
+export function canvasContentBounds(padding: number): Rect {
+  const inset = Math.min(0.2, Math.max(0, padding));
   return {
-    x: gutter,
-    y: gutter,
-    width: 1 - 2 * gutter,
-    height: 1 - 2 * gutter,
+    x: inset,
+    y: inset,
+    width: 1 - 2 * inset,
+    height: 1 - 2 * inset,
   };
 }
 
@@ -81,8 +82,9 @@ export function resolveRects(
 export function resolveAllRects(
   tree: SplitNode,
   gutter: number,
+  padding = gutter,
 ): Map<string, Rect> {
-  return resolveRects(tree, canvasContentBounds(gutter), gutter);
+  return resolveRects(tree, canvasContentBounds(padding), gutter);
 }
 
 function mergeRects(target: Map<string, Rect>, source: Map<string, Rect>) {
@@ -177,8 +179,9 @@ export function collectGutterHandles(
 export function getAllGutterHandles(
   tree: SplitNode,
   gutter: number,
+  padding = gutter,
 ): GutterHandle[] {
-  return collectGutterHandles(tree, canvasContentBounds(gutter), gutter);
+  return collectGutterHandles(tree, canvasContentBounds(padding), gutter);
 }
 
 export function updateSplitRatio(
@@ -234,8 +237,9 @@ export function getSplitBounds(
   tree: SplitNode,
   path: ("a" | "b")[],
   gutter: number,
+  padding = gutter,
 ): Rect | null {
-  return walkBounds(tree, canvasContentBounds(gutter), gutter, path);
+  return walkBounds(tree, canvasContentBounds(padding), gutter, path);
 }
 
 function walkBounds(

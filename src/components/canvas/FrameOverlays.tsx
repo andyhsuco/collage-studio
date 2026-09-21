@@ -7,6 +7,7 @@ interface FrameOverlaysProps {
   frames: Record<string, { imageId: string }>;
   layoutTree: NonNullable<import("../../types").SplitNode>;
   gutter: number;
+  padding: number;
   canvasWidth: number;
   canvasHeight: number;
   hoveredFrameId: string | null;
@@ -21,6 +22,7 @@ export function FrameOverlays({
   frames,
   layoutTree,
   gutter,
+  padding,
   canvasWidth,
   canvasHeight,
   hoveredFrameId,
@@ -34,8 +36,8 @@ export function FrameOverlays({
   );
 
   const rects = useMemo(
-    () => resolveAllRects(layoutTree, gutter),
-    [layoutTree, gutter],
+    () => resolveAllRects(layoutTree, gutter, padding),
+    [layoutTree, gutter, padding],
   );
 
   if (hidden) return null;

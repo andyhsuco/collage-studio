@@ -81,7 +81,7 @@ function scoreRowGroups(
   canvasAspect: number,
 ): number {
   const tree = buildGridTreeFromRowGroups(rowGroups);
-  const rects = resolveAllRects(tree, doc.gutter);
+  const rects = resolveAllRects(tree, doc.gutter, doc.canvasPadding);
   let totalLoss = 0;
 
   for (const row of rowGroups) {

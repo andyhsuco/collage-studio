@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Button } from "../ui/primitives";
-import { useCollageStore } from "../../store/collageStore";
-import type { CanvasRatio } from "../../types";
+import { useCollageStore, type ViewMode } from "../../store/collageStore";
 
-const RATIOS: CanvasRatio[] = ["1:1", "4:5", "16:9", "9:16", "custom"];
+const VIEW_MODES: { value: ViewMode; label: string }[] = [
+  { value: "collage", label: "Collage" },
+  { value: "slides", label: "Slides" },
+];
 
 function CopyIcon() {
   return (
@@ -28,8 +30,8 @@ function CopyIcon() {
 }
 
 export function TopBar() {
-  const canvasRatio = useCollageStore((s) => s.document.canvasRatio);
-  const setCanvasRatio = useCollageStore((s) => s.setCanvasRatio);
+  const viewMode = useCollageStore((s) => s.viewMode);
+  const setViewMode = useCollageStore((s) => s.setViewMode);
   const undo = useCollageStore((s) => s.undo);
   const redo = useCollageStore((s) => s.redo);
   const canUndo = useCollageStore((s) => s.canUndo());
@@ -52,19 +54,19 @@ export function TopBar() {
         <h1 className="text-[14px] font-medium tracking-tight text-zinc-100">
           Collage Studio
         </h1>
-        <div className="hidden items-center gap-0.5 sm:flex">
-          {RATIOS.filter((r) => r !== "custom").map((ratio) => (
+        <div className="flex items-center gap-1 rounded-md bg-zinc-900 p-0.5">
+          {VIEW_MODES.map((mode) => (
             <button
-              key={ratio}
+              key={mode.value}
               type="button"
-              onClick={() => setCanvasRatio(ratio)}
+              onClick={() => setViewMode(mode.value)}
               className={`rounded px-2.5 py-1 text-[12px] transition-colors ${
-                canvasRatio === ratio
+                viewMode === mode.value
                   ? "bg-zinc-100 text-zinc-900"
                   : "text-zinc-500 hover:text-zinc-200"
               }`}
             >
-              {ratio}
+              {mode.label}
             </button>
           ))}
         </div>

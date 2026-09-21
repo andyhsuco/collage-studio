@@ -29,8 +29,11 @@ import { computeSmartOrganizePlan } from "../lib/layout/smartOrganize";
 
 const HISTORY_LIMIT = 50;
 
+export type ViewMode = "collage" | "slides";
+
 interface CollageState {
   document: CollageDocument;
+  viewMode: ViewMode;
   selectedFrameId: string | null;
   cropFrameId: string | null;
   selectedPresetId: string | null;
@@ -55,6 +58,7 @@ interface CollageState {
   updateSplit: (path: ("a" | "b")[], ratio: number) => void;
   prepareHistory: () => void;
   setGutter: (value: number) => void;
+  setCanvasPadding: (value: number) => void;
   setBorderRadius: (value: number) => void;
   setBackgroundColor: (value: string) => void;
   setCanvasRatio: (ratio: CanvasRatio) => void;
@@ -64,6 +68,7 @@ interface CollageState {
   refreshLayoutOptions: () => void;
   undo: () => void;
   redo: () => void;
+  setViewMode: (mode: ViewMode) => void;
   exportPng: () => Promise<void>;
   copyPng: () => Promise<boolean>;
   canUndo: () => boolean;
@@ -142,6 +147,7 @@ function rebuildFramesForImages(
 export const useCollageStore = create<CollageState>()(
   immer((set, get) => ({
     document: createDefaultDocument(),
+    viewMode: "collage",
     selectedFrameId: null,
     cropFrameId: null,
     selectedPresetId: null,
@@ -171,6 +177,7 @@ export const useCollageStore = create<CollageState>()(
           state.document.images[id] = {
             id,
             src,
+            name: file.name || `photo-${id}.png`,
             naturalWidth: 0,
             naturalHeight: 0,
           };
@@ -293,6 +300,7 @@ export const useCollageStore = create<CollageState>()(
         const rects = resolveAllRects(
           state.document.layoutTree,
           state.document.gutter,
+          state.document.canvasPadding,
         );
         const groups = getGridRowGroups(state.document);
         const nextGroups = moveFrameToRowAtGutter(
@@ -379,6 +387,13 @@ export const useCollageStore = create<CollageState>()(
       set((state) => {
         pushHistory(state);
         state.document.gutter = value;
+      });
+    },
+
+    setCanvasPadding: (value) => {
+      set((state) => {
+        pushHistory(state);
+        state.document.canvasPadding = Math.min(0.2, Math.max(0, value));
       });
     },
 
@@ -496,6 +511,12 @@ export const useCollageStore = create<CollageState>()(
         if (state.future.length === 0) return;
         state.past.push(cloneDocument(state.document));
         state.document = state.future.pop()!;
+      });
+    },
+
+    setViewMode: (mode) => {
+      set((state) => {
+        state.viewMode = mode;
       });
     },
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import clsx from "clsx";
 
 interface SliderProps {
@@ -7,6 +8,7 @@ interface SliderProps {
   max: number;
   step: number;
   unit?: string;
+  format?: (value: number) => string;
   onChange: (value: number) => void;
 }
 
@@ -17,8 +19,13 @@ export function Slider({
   max,
   step,
   unit = "",
+  format,
   onChange,
 }: SliderProps) {
+  const display = format
+    ? format(value)
+    : `${Number.isInteger(step) ? value : value.toFixed(3)}${unit}`;
+
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
@@ -26,8 +33,7 @@ export function Slider({
           {label}
         </span>
         <span className="text-[11px] tabular-nums text-zinc-400">
-          {Number.isInteger(step) ? value : value.toFixed(3)}
-          {unit}
+          {display}
         </span>
       </div>
       <input
@@ -46,15 +52,51 @@ export function Slider({
 interface PanelSectionProps {
   title: string;
   children: React.ReactNode;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
 }
 
-export function PanelSection({ title, children }: PanelSectionProps) {
+export function PanelSection({
+  title,
+  children,
+  collapsible = false,
+  defaultOpen = true,
+}: PanelSectionProps) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  if (!collapsible) {
+    return (
+      <section className="flex flex-col gap-3">
+        <h2 className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+          {title}
+        </h2>
+        {children}
+      </section>
+    );
+  }
+
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-        {title}
-      </h2>
-      {children}
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <h2 className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+          {title}
+        </h2>
+        <span
+          className={clsx(
+            "text-[10px] text-zinc-600 transition-transform",
+            open && "rotate-180",
+          )}
+          aria-hidden
+        >
+          ▾
+        </span>
+      </button>
+      {open && children}
     </section>
   );
 }

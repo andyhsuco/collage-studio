@@ -53,7 +53,7 @@ export async function renderCollageCanvas(
   ctx.fillStyle = doc.backgroundColor;
   ctx.fillRect(0, 0, width, height);
 
-  const rects = resolveAllRects(doc.layoutTree, doc.gutter);
+  const rects = resolveAllRects(doc.layoutTree, doc.gutter, doc.canvasPadding);
   const radius = doc.borderRadius * (width / 800);
 
   for (const frameId of doc.frameOrder) {

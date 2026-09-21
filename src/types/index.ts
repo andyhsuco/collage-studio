@@ -10,6 +10,7 @@ export interface Rect {
 export interface ImageAsset {
   id: string;
   src: string;
+  name: string;
   naturalWidth: number;
   naturalHeight: number;
 }
@@ -38,6 +39,8 @@ export interface CollageDocument {
   frameOrder: string[];
   layoutTree: SplitNode | null;
   gutter: number;
+  /** Outer inset of the collage, as a fraction of the canvas. */
+  canvasPadding: number;
   borderRadius: number;
   backgroundColor: string;
   canvasRatio: CanvasRatio;
@@ -89,6 +92,7 @@ export function createDefaultDocument(): CollageDocument {
     frameOrder: [],
     layoutTree: null,
     gutter: 0.012,
+    canvasPadding: 0.012,
     borderRadius: 4,
     backgroundColor: "#ffffff",
     canvasRatio: "1:1",
