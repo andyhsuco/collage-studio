@@ -31,9 +31,25 @@ const HISTORY_LIMIT = 50;
 
 export type ViewMode = "collage" | "slides";
 
+export interface SlideSettings {
+  /** Fraction of the slide's width/height the image may fill (0–1). */
+  imageScale: number;
+  cornerRadius: number;
+  backgroundMode: "auto" | "custom";
+  backgroundColor: string;
+}
+
+const DEFAULT_SLIDE_SETTINGS: SlideSettings = {
+  imageScale: 0.9,
+  cornerRadius: 2,
+  backgroundMode: "auto",
+  backgroundColor: "#18181b",
+};
+
 interface CollageState {
   document: CollageDocument;
   viewMode: ViewMode;
+  slideSettings: SlideSettings;
   selectedFrameId: string | null;
   cropFrameId: string | null;
   selectedPresetId: string | null;
@@ -44,6 +60,7 @@ interface CollageState {
   addImages: (files: File[]) => Promise<void>;
   removeImage: (imageId: string) => void;
   swapFrameImages: (frameIdA: string, frameIdB: string) => void;
+  reorderFrames: (fromIndex: number, toIndex: number) => void;
   moveFrameToRow: (frameId: string, target: RowDropTarget) => boolean;
   selectFrame: (frameId: string | null) => void;
   enterCropMode: (frameId: string) => void;
@@ -69,6 +86,7 @@ interface CollageState {
   undo: () => void;
   redo: () => void;
   setViewMode: (mode: ViewMode) => void;
+  updateSlideSettings: (patch: Partial<SlideSettings>) => void;
   exportPng: () => Promise<void>;
   copyPng: () => Promise<boolean>;
   canUndo: () => boolean;
@@ -120,6 +138,15 @@ function clampGridRows(doc: CollageDocument) {
   }
 }
 
+/** Image ids in current frame order, followed by any images without a frame yet. */
+function orderedImageIds(doc: CollageDocument): string[] {
+  const ordered = doc.frameOrder
+    .map((frameId) => doc.frames[frameId]?.imageId)
+    .filter((id): id is string => !!id && id in doc.images);
+  const rest = Object.keys(doc.images).filter((id) => !ordered.includes(id));
+  return [...ordered, ...rest];
+}
+
 function rebuildFramesForImages(
   doc: CollageDocument,
   imageIds: string[],
@@ -148,6 +175,7 @@ export const useCollageStore = create<CollageState>()(
   immer((set, get) => ({
     document: createDefaultDocument(),
     viewMode: "collage",
+    slideSettings: DEFAULT_SLIDE_SETTINGS,
     selectedFrameId: null,
     cropFrameId: null,
     selectedPresetId: null,
@@ -168,8 +196,6 @@ export const useCollageStore = create<CollageState>()(
 
         pushHistory(state);
 
-        const newImageIds: string[] = [];
-
         for (const file of toAdd) {
           const id = nanoid();
           const src = URL.createObjectURL(file);
@@ -181,17 +207,9 @@ export const useCollageStore = create<CollageState>()(
             naturalWidth: 0,
             naturalHeight: 0,
           };
-          newImageIds.push(id);
         }
 
-        const allImageIds = [
-          ...Object.keys(state.document.images).filter(
-            (id) => !newImageIds.includes(id),
-          ),
-          ...newImageIds,
-        ];
-
-        rebuildFramesForImages(state.document, allImageIds);
+        rebuildFramesForImages(state.document, orderedImageIds(state.document));
         clampGridRows(state.document);
 
         const previousPresetId = state.selectedPresetId;
@@ -245,8 +263,7 @@ export const useCollageStore = create<CollageState>()(
         if (asset) URL.revokeObjectURL(asset.src);
         delete state.document.images[imageId];
 
-        const remainingIds = Object.keys(state.document.images);
-        rebuildFramesForImages(state.document, remainingIds);
+        rebuildFramesForImages(state.document, orderedImageIds(state.document));
         clampGridRows(state.document);
         clearManualGridLayout(state.document);
 
@@ -289,6 +306,33 @@ export const useCollageStore = create<CollageState>()(
         b.cropX = temp.cropX;
         b.cropY = temp.cropY;
         b.zoom = temp.zoom;
+      });
+    },
+
+    reorderFrames: (fromIndex, toIndex) => {
+      set((state) => {
+        const doc = state.document;
+        const order = doc.frameOrder;
+        if (
+          fromIndex === toIndex ||
+          Math.min(fromIndex, toIndex) < 0 ||
+          Math.max(fromIndex, toIndex) >= order.length
+        ) {
+          return;
+        }
+
+        pushHistory(state);
+
+        // Frames stay put as layout slots; images (with their crops) move through them.
+        const contents = order.map((frameId) => {
+          const { imageId, cropX, cropY, zoom } = doc.frames[frameId];
+          return { imageId, cropX, cropY, zoom };
+        });
+        const [moved] = contents.splice(fromIndex, 1);
+        contents.splice(toIndex, 0, moved);
+        order.forEach((frameId, i) => {
+          Object.assign(doc.frames[frameId], contents[i]);
+        });
       });
     },
 
@@ -517,6 +561,12 @@ export const useCollageStore = create<CollageState>()(
     setViewMode: (mode) => {
       set((state) => {
         state.viewMode = mode;
+      });
+    },
+
+    updateSlideSettings: (patch) => {
+      set((state) => {
+        Object.assign(state.slideSettings, patch);
       });
     },
 

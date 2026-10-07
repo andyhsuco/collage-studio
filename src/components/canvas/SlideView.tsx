@@ -1,14 +1,68 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { dominantColor } from "../../lib/color/dominant";
 import { loadImage } from "../../lib/export/png";
+import { movedIndex, useSortableDrag } from "../../hooks/useSortableDrag";
 import { useCollageStore } from "../../store/collageStore";
+import type { ImageAsset } from "../../types";
 import { Button } from "../ui/primitives";
+
+const FIRST_SLIDE_MS = 1500;
+const SLIDE_MS = 1000;
+
+/** Fits the image inside `scale` of the slide, upscaling small images too. */
+function fitImageStyle(
+  image: ImageAsset,
+  slide: { width: number; height: number },
+  scale: number,
+): CSSProperties {
+  if (!image.naturalWidth || !image.naturalHeight) {
+    return { maxWidth: `${scale * 100}%`, maxHeight: `${scale * 100}%` };
+  }
+  const ratio = Math.min(
+    (slide.width * scale) / image.naturalWidth,
+    (slide.height * scale) / image.naturalHeight,
+  );
+  return {
+    width: Math.round(image.naturalWidth * ratio),
+    height: Math.round(image.naturalHeight * ratio),
+  };
+}
+
+function PlayIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+      <path
+        d="M3 1.75v8.5a.5.5 0 0 0 .77.42l6.5-4.25a.5.5 0 0 0 0-.84l-6.5-4.25A.5.5 0 0 0 3 1.75Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+      <rect
+        x="2.5"
+        y="1.5"
+        width="2.5"
+        height="9"
+        rx="0.5"
+        fill="currentColor"
+      />
+      <rect x="7" y="1.5" width="2.5" height="9" rx="0.5" fill="currentColor" />
+    </svg>
+  );
+}
 
 export function SlideView() {
   const frameOrder = useCollageStore((s) => s.document.frameOrder);
   const frames = useCollageStore((s) => s.document.frames);
   const images = useCollageStore((s) => s.document.images);
+  const settings = useCollageStore((s) => s.slideSettings);
+  const reorderFrames = useCollageStore((s) => s.reorderFrames);
   const [index, setIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [colors, setColors] = useState<Record<string, string>>({});
   const stageRef = useRef<HTMLDivElement>(null);
   const [slideSize, setSlideSize] = useState({ width: 0, height: 0 });
@@ -26,6 +80,30 @@ export function SlideView() {
 
   const safeIndex = Math.min(index, Math.max(0, slides.length - 1));
   const current = slides[safeIndex];
+  const canPlay = slides.length > 1;
+  const isPlaying = playing && canPlay;
+
+  const { containerRef: stripRef, drag, getItemProps } =
+    useSortableDrag<HTMLDivElement>((fromIndex, toIndex) => {
+      reorderFrames(fromIndex, toIndex);
+      setIndex(movedIndex(safeIndex, fromIndex, toIndex));
+    });
+  const draggedSlide = drag ? slides[drag.fromIndex] : undefined;
+
+  const togglePlay = () => {
+    if (!isPlaying && safeIndex >= slides.length - 1) setIndex(0);
+    setPlaying(!isPlaying);
+  };
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const delay = safeIndex === 0 ? FIRST_SLIDE_MS : SLIDE_MS;
+    const id = window.setTimeout(
+      () => setIndex((safeIndex + 1) % slides.length),
+      delay,
+    );
+    return () => window.clearTimeout(id);
+  }, [isPlaying, safeIndex, slides.length]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -82,7 +160,11 @@ export function SlideView() {
       ) {
         return;
       }
-      if (event.key === "ArrowRight") {
+      // Focused buttons already fire click on Space; toggling here too would double-toggle.
+      if (event.key === " " && !(target instanceof HTMLButtonElement)) {
+        event.preventDefault();
+        togglePlay();
+      } else if (event.key === "ArrowRight") {
         event.preventDefault();
         setIndex((value) => Math.min(slides.length - 1, value + 1));
       } else if (event.key === "ArrowLeft") {
@@ -93,7 +175,7 @@ export function SlideView() {
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [slides.length]);
+  });
 
   if (!current) {
     return (
@@ -111,7 +193,11 @@ export function SlideView() {
     );
   }
 
-  const background = colors[current.image.id] ?? "#18181b";
+  const backgroundFor = (imageId: string, fallback: string) =>
+    settings.backgroundMode === "custom"
+      ? settings.backgroundColor
+      : (colors[imageId] ?? fallback);
+  const background = backgroundFor(current.image.id, "#18181b");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[var(--bg-app)]">
@@ -131,7 +217,11 @@ export function SlideView() {
             src={current.image.src}
             alt=""
             draggable={false}
-            className="max-h-[80%] max-w-[80%] object-contain"
+            className="object-contain"
+            style={{
+              ...fitImageStyle(current.image, slideSize, settings.imageScale),
+              borderRadius: settings.cornerRadius,
+            }}
           />
         </div>
       </div>
@@ -146,6 +236,17 @@ export function SlideView() {
             aria-label="Previous slide"
           >
             ←
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-7 px-0"
+            onClick={togglePlay}
+            disabled={!canPlay}
+            aria-label={isPlaying ? "Pause slideshow" : "Play slideshow"}
+            title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+          >
+            {isPlaying ? <PauseIcon /> : <PlayIcon />}
           </Button>
           <span className="min-w-16 text-center text-[12px] tabular-nums text-zinc-400">
             {safeIndex + 1} / {slides.length}
@@ -163,23 +264,31 @@ export function SlideView() {
           </Button>
         </div>
 
-        <div className="flex max-w-full gap-2 overflow-x-auto pb-1">
+        <div
+          ref={stripRef}
+          className="flex max-w-full gap-2 overflow-x-auto pb-1"
+        >
           {slides.map((slide, slideIndex) => {
             const selected = slideIndex === safeIndex;
+            const sortable = getItemProps(slideIndex);
             return (
               <button
                 key={slide.frameId}
                 type="button"
+                {...sortable}
                 onClick={() => setIndex(slideIndex)}
                 aria-label={`Slide ${slideIndex + 1}`}
                 aria-current={selected ? "true" : undefined}
-                className={`flex h-12 w-[5.25rem] shrink-0 items-center justify-center overflow-hidden rounded-sm ${
-                  selected
-                    ? "ring-2 ring-zinc-100"
-                    : "opacity-70 ring-1 ring-zinc-700 hover:opacity-100"
+                className={`flex h-12 w-[5.25rem] shrink-0 cursor-grab items-center justify-center overflow-hidden rounded-sm ${
+                  drag?.fromIndex === slideIndex
+                    ? "opacity-30 ring-1 ring-zinc-700"
+                    : selected
+                      ? "ring-2 ring-zinc-100"
+                      : "opacity-70 ring-1 ring-zinc-700 hover:opacity-100"
                 }`}
                 style={{
-                  background: colors[slide.image.id] ?? "#27272a",
+                  ...sortable.style,
+                  background: backgroundFor(slide.image.id, "#27272a"),
                 }}
               >
                 <img
@@ -193,6 +302,27 @@ export function SlideView() {
           })}
         </div>
       </div>
+
+      {drag && draggedSlide && (
+        <div
+          className="pointer-events-none fixed z-[100] flex items-center justify-center overflow-hidden rounded-sm shadow-2xl ring-2 ring-white/90"
+          style={{
+            left: drag.ghostX,
+            top: drag.ghostY,
+            width: drag.width,
+            height: drag.height,
+            transform: "translate(-50%, -50%)",
+            background: backgroundFor(draggedSlide.image.id, "#27272a"),
+          }}
+        >
+          <img
+            src={draggedSlide.image.src}
+            alt=""
+            draggable={false}
+            className="max-h-full max-w-full object-contain"
+          />
+        </div>
+      )}
     </div>
   );
 }
