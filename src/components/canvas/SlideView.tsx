@@ -74,6 +74,27 @@ function SlideImage({
   );
 }
 
+function ReplayIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path
+        d="M2 6a4 4 0 1 0 1.2-2.85"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M2.5 1.25v2.25h2.25"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M5 4.4v3.2L7.6 6 5 4.4Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 function CropIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
@@ -151,6 +172,7 @@ export function SlideView() {
   const setSlideEdit = useCollageStore((s) => s.setSlideEdit);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [playRun, setPlayRun] = useState(0);
   const [colors, setColors] = useState<Record<string, string>>({});
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -235,6 +257,13 @@ export function SlideView() {
     setPlaying(!isPlaying);
   };
 
+  const replay = () => {
+    setIndex(0);
+    setPlaying(true);
+    // Restarts the timer even when already playing on the first slide.
+    setPlayRun((run) => run + 1);
+  };
+
   useEffect(() => {
     if (!isPlaying) return;
     const delay =
@@ -244,7 +273,13 @@ export function SlideView() {
       delay,
     );
     return () => window.clearTimeout(id);
-  }, [isPlaying, safeIndex, slides.length, settings.slideDuration]);
+  }, [
+    isPlaying,
+    safeIndex,
+    slides.length,
+    settings.slideDuration,
+    playRun,
+  ]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -483,6 +518,17 @@ export function SlideView() {
               title={isPlaying ? "Pause (Space)" : "Play (Space)"}
             >
               {isPlaying ? <PauseIcon /> : <PlayIcon />}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-7 px-0"
+              onClick={replay}
+              disabled={!canPlay}
+              aria-label="Replay from start"
+              title="Replay from start"
+            >
+              <ReplayIcon />
             </Button>
             <span className="min-w-16 text-center text-[12px] tabular-nums text-zinc-400">
               {safeIndex + 1} / {slides.length}
