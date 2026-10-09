@@ -36,6 +36,18 @@ export function SlideSettingsPanel() {
         />
       </PanelSection>
 
+      <PanelSection title="Playback">
+        <Slider
+          label="Time per slide"
+          value={settings.slideDuration}
+          min={250}
+          max={5000}
+          step={250}
+          format={(value) => `${(value / 1000).toFixed(2)}s`}
+          onChange={(slideDuration) => update({ slideDuration })}
+        />
+      </PanelSection>
+
       <PanelSection title="Background">
         <div className="flex flex-wrap gap-1">
           {BACKGROUND_MODES.map((mode) => (

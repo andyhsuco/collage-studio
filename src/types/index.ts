@@ -15,6 +15,15 @@ export interface ImageAsset {
   naturalHeight: number;
 }
 
+export type Rotation = 0 | 90 | 180 | 270;
+
+export interface ImageEdit {
+  /** Clockwise rotation, applied before the crop. */
+  rotation: Rotation;
+  /** Crop rect, normalized to the rotated image (0–1). */
+  crop: Rect;
+}
+
 export interface Frame {
   id: string;
   imageId: string;
@@ -50,6 +59,8 @@ export interface CollageDocument {
   gridRows: number | null;
   /** Explicit grid row grouping; null derives rows from frame order. */
   gridRowGroups: string[][] | null;
+  /** Per-image crop/rotation used in slide view, keyed by image id. */
+  slideEdits: Record<string, ImageEdit>;
 }
 
 export interface LayoutOption {
@@ -100,5 +111,6 @@ export function createDefaultDocument(): CollageDocument {
     customHeight: 1080,
     gridRows: null,
     gridRowGroups: null,
+    slideEdits: {},
   };
 }

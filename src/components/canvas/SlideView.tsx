@@ -1,31 +1,117 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { dominantColor } from "../../lib/color/dominant";
 import { loadImage } from "../../lib/export/png";
+import {
+  aspectCrop,
+  editedSize,
+  fitSize,
+  IDENTITY_EDIT,
+  rotatedSize,
+  rotateEdit,
+} from "../../lib/geometry/imageEdit";
 import { movedIndex, useSortableDrag } from "../../hooks/useSortableDrag";
 import { useCollageStore } from "../../store/collageStore";
-import type { ImageAsset } from "../../types";
+import type { ImageAsset, ImageEdit } from "../../types";
 import { Button } from "../ui/primitives";
+import { EditedImage } from "./EditedImage";
+import { SlideCropEditor } from "./SlideCropEditor";
 
-const FIRST_SLIDE_MS = 1500;
-const SLIDE_MS = 1000;
+const FIRST_SLIDE_EXTRA_MS = 500;
+const THUMB_WIDTH = 84;
+const THUMB_HEIGHT = 48;
 
-/** Fits the image inside `scale` of the slide, upscaling small images too. */
-function fitImageStyle(
-  image: ImageAsset,
-  slide: { width: number; height: number },
-  scale: number,
-): CSSProperties {
+const CROP_ASPECTS: { label: string; value: number | null }[] = [
+  { label: "Free", value: null },
+  { label: "16:9", value: 16 / 9 },
+  { label: "1:1", value: 1 },
+  { label: "4:5", value: 4 / 5 },
+];
+
+interface CropDraft {
+  imageId: string;
+  edit: ImageEdit;
+  aspect: number | null;
+}
+
+/** Fits the edited image inside the box, upscaling small images too. */
+function SlideImage({
+  image,
+  edit,
+  boxWidth,
+  boxHeight,
+  borderRadius,
+  onDoubleClick,
+}: {
+  image: ImageAsset;
+  edit: ImageEdit;
+  boxWidth: number;
+  boxHeight: number;
+  borderRadius?: number;
+  onDoubleClick?: () => void;
+}) {
   if (!image.naturalWidth || !image.naturalHeight) {
-    return { maxWidth: `${scale * 100}%`, maxHeight: `${scale * 100}%` };
+    return (
+      <img
+        src={image.src}
+        alt=""
+        draggable={false}
+        className="object-contain"
+        style={{ maxWidth: boxWidth, maxHeight: boxHeight, borderRadius }}
+      />
+    );
   }
-  const ratio = Math.min(
-    (slide.width * scale) / image.naturalWidth,
-    (slide.height * scale) / image.naturalHeight,
+  const natural = editedSize(image, edit);
+  const size = fitSize(natural.width, natural.height, boxWidth, boxHeight);
+  return (
+    <EditedImage
+      image={image}
+      edit={edit}
+      width={size.width}
+      height={size.height}
+      borderRadius={borderRadius}
+      onDoubleClick={onDoubleClick}
+    />
   );
-  return {
-    width: Math.round(image.naturalWidth * ratio),
-    height: Math.round(image.naturalHeight * ratio),
-  };
+}
+
+function CropIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path
+        d="M3.5 1v8.5a1 1 0 0 0 1 1H13M1 3.5h8.5a1 1 0 0 1 1 1V13"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function RotateIcon({ direction }: { direction: 1 | -1 }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden
+      style={direction === 1 ? { transform: "scaleX(-1)" } : undefined}
+    >
+      <path
+        d="M2.5 6.5a4.5 4.5 0 1 1 1.3 3.7"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M2.5 3.5v3h3"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 function PlayIcon() {
@@ -59,11 +145,14 @@ export function SlideView() {
   const frameOrder = useCollageStore((s) => s.document.frameOrder);
   const frames = useCollageStore((s) => s.document.frames);
   const images = useCollageStore((s) => s.document.images);
+  const slideEdits = useCollageStore((s) => s.document.slideEdits);
   const settings = useCollageStore((s) => s.slideSettings);
   const reorderFrames = useCollageStore((s) => s.reorderFrames);
+  const setSlideEdit = useCollageStore((s) => s.setSlideEdit);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [colors, setColors] = useState<Record<string, string>>({});
+  const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [slideSize, setSlideSize] = useState({ width: 0, height: 0 });
 
@@ -73,15 +162,66 @@ export function SlideView() {
         const frame = frames[frameId];
         const image = frame ? images[frame.imageId] : undefined;
         if (!frame || !image) return [];
-        return [{ frameId, image }];
+        return [
+          { frameId, image, edit: slideEdits[image.id] ?? IDENTITY_EDIT },
+        ];
       }),
-    [frameOrder, frames, images],
+    [frameOrder, frames, images, slideEdits],
   );
 
   const safeIndex = Math.min(index, Math.max(0, slides.length - 1));
   const current = slides[safeIndex];
   const canPlay = slides.length > 1;
   const isPlaying = playing && canPlay;
+  const draft =
+    cropDraft && cropDraft.imageId === current?.image.id ? cropDraft : null;
+  const canEdit = !!current?.image.naturalWidth;
+  const hasEdit = !!current && current.image.id in slideEdits;
+
+  const startCrop = () => {
+    if (!current || !canEdit) return;
+    setPlaying(false);
+    setCropDraft({
+      imageId: current.image.id,
+      edit: current.edit,
+      aspect: null,
+    });
+  };
+
+  const applyCrop = () => {
+    if (!draft) return;
+    setSlideEdit(draft.imageId, draft.edit);
+    setCropDraft(null);
+  };
+
+  /** Refits the crop to `aspect` around its current center. */
+  const withAspect = (edit: ImageEdit, aspect: number | null): ImageEdit => {
+    if (!aspect || !current) return edit;
+    const rotated = rotatedSize(current.image, edit.rotation);
+    const { x, y, width, height } = edit.crop;
+    return {
+      ...edit,
+      crop: aspectCrop(aspect, rotated.width / rotated.height, {
+        x: x + width / 2,
+        y: y + height / 2,
+      }),
+    };
+  };
+
+  const rotate = (direction: 1 | -1) => {
+    if (!current || !canEdit) return;
+    if (!draft) {
+      setSlideEdit(current.image.id, rotateEdit(current.edit, direction));
+      return;
+    }
+    const edit = rotateEdit(draft.edit, direction);
+    setCropDraft({ ...draft, edit: withAspect(edit, draft.aspect) });
+  };
+
+  const setCropAspect = (aspect: number | null) => {
+    if (!draft) return;
+    setCropDraft({ ...draft, aspect, edit: withAspect(draft.edit, aspect) });
+  };
 
   const { containerRef: stripRef, drag, getItemProps } =
     useSortableDrag<HTMLDivElement>((fromIndex, toIndex) => {
@@ -97,13 +237,14 @@ export function SlideView() {
 
   useEffect(() => {
     if (!isPlaying) return;
-    const delay = safeIndex === 0 ? FIRST_SLIDE_MS : SLIDE_MS;
+    const delay =
+      settings.slideDuration + (safeIndex === 0 ? FIRST_SLIDE_EXTRA_MS : 0);
     const id = window.setTimeout(
       () => setIndex((safeIndex + 1) % slides.length),
       delay,
     );
     return () => window.clearTimeout(id);
-  }, [isPlaying, safeIndex, slides.length]);
+  }, [isPlaying, safeIndex, slides.length, settings.slideDuration]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -160,6 +301,23 @@ export function SlideView() {
       ) {
         return;
       }
+      if (draft) {
+        // A focused button (e.g. Cancel) handles its own Enter.
+        if (event.key === "Enter" && !(target instanceof HTMLButtonElement)) {
+          event.preventDefault();
+          applyCrop();
+        } else if (event.key === "Escape") {
+          setCropDraft(null);
+        }
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        const store = useCollageStore.getState();
+        if (event.shiftKey) store.redo();
+        else store.undo();
+        return;
+      }
       // Focused buttons already fire click on Space; toggling here too would double-toggle.
       if (event.key === " " && !(target instanceof HTMLButtonElement)) {
         event.preventDefault();
@@ -213,60 +371,187 @@ export function SlideView() {
             background,
           }}
         >
-          <img
-            src={current.image.src}
-            alt=""
-            draggable={false}
-            className="object-contain"
-            style={{
-              ...fitImageStyle(current.image, slideSize, settings.imageScale),
-              borderRadius: settings.cornerRadius,
-            }}
-          />
+          {draft ? (
+            <SlideCropEditor
+              image={current.image}
+              edit={draft.edit}
+              aspect={draft.aspect}
+              area={slideSize}
+              onChange={(crop) =>
+                setCropDraft({ ...draft, edit: { ...draft.edit, crop } })
+              }
+            />
+          ) : (
+            <SlideImage
+              image={current.image}
+              edit={current.edit}
+              boxWidth={slideSize.width * settings.imageScale}
+              boxHeight={slideSize.height * settings.imageScale}
+              borderRadius={settings.cornerRadius}
+              onDoubleClick={canEdit ? startCrop : undefined}
+            />
+          )}
         </div>
       </div>
 
       <div className="flex shrink-0 flex-col items-center gap-3 px-4 py-4">
-        <div className="flex items-center gap-3">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setIndex((value) => Math.max(0, value - 1))}
-            disabled={safeIndex === 0}
-            aria-label="Previous slide"
-          >
-            ←
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-7 px-0"
-            onClick={togglePlay}
-            disabled={!canPlay}
-            aria-label={isPlaying ? "Pause slideshow" : "Play slideshow"}
-            title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-          >
-            {isPlaying ? <PauseIcon /> : <PlayIcon />}
-          </Button>
-          <span className="min-w-16 text-center text-[12px] tabular-nums text-zinc-400">
-            {safeIndex + 1} / {slides.length}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() =>
-              setIndex((value) => Math.min(slides.length - 1, value + 1))
-            }
-            disabled={safeIndex >= slides.length - 1}
-            aria-label="Next slide"
-          >
-            →
-          </Button>
-        </div>
+        {draft ? (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 rounded-md bg-zinc-900 p-0.5">
+              {CROP_ASPECTS.map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={() => setCropAspect(option.value)}
+                  className={`rounded px-2 py-1 text-[11px] transition-colors ${
+                    draft.aspect === option.value
+                      ? "bg-zinc-100 text-zinc-900"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-7 px-0"
+                onClick={() => rotate(-1)}
+                aria-label="Rotate left"
+                title="Rotate left"
+              >
+                <RotateIcon direction={-1} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-7 px-0"
+                onClick={() => rotate(1)}
+                aria-label="Rotate right"
+                title="Rotate right"
+              >
+                <RotateIcon direction={1} />
+              </Button>
+            </div>
+            <div className="h-4 w-px bg-zinc-800" />
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setCropDraft({ ...draft, edit: IDENTITY_EDIT, aspect: null })
+              }
+            >
+              Reset
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setCropDraft(null)}
+              title="Cancel (Esc)"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={applyCrop}
+              title="Apply (Enter)"
+            >
+              Done
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIndex((value) => Math.max(0, value - 1))}
+              disabled={safeIndex === 0}
+              aria-label="Previous slide"
+            >
+              ←
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-7 px-0"
+              onClick={togglePlay}
+              disabled={!canPlay}
+              aria-label={isPlaying ? "Pause slideshow" : "Play slideshow"}
+              title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+            >
+              {isPlaying ? <PauseIcon /> : <PlayIcon />}
+            </Button>
+            <span className="min-w-16 text-center text-[12px] tabular-nums text-zinc-400">
+              {safeIndex + 1} / {slides.length}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                setIndex((value) => Math.min(slides.length - 1, value + 1))
+              }
+              disabled={safeIndex >= slides.length - 1}
+              aria-label="Next slide"
+            >
+              →
+            </Button>
+            <div className="h-4 w-px bg-zinc-800" />
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-7 px-0"
+                onClick={startCrop}
+                disabled={!canEdit}
+                aria-label="Crop image"
+                title="Crop (double-click image)"
+              >
+                <CropIcon />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-7 px-0"
+                onClick={() => rotate(-1)}
+                disabled={!canEdit}
+                aria-label="Rotate left"
+                title="Rotate left"
+              >
+                <RotateIcon direction={-1} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-7 px-0"
+                onClick={() => rotate(1)}
+                disabled={!canEdit}
+                aria-label="Rotate right"
+                title="Rotate right"
+              >
+                <RotateIcon direction={1} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSlideEdit(current.image.id, null)}
+                disabled={!hasEdit}
+                title="Remove crop and rotation"
+              >
+                Reset
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div
           ref={stripRef}
-          className="flex max-w-full gap-2 overflow-x-auto pb-1"
+          inert={!!draft}
+          className={`flex max-w-full gap-2 overflow-x-auto pb-1 transition-opacity ${
+            draft ? "opacity-40" : ""
+          }`}
         >
           {slides.map((slide, slideIndex) => {
             const selected = slideIndex === safeIndex;
@@ -291,11 +576,11 @@ export function SlideView() {
                   background: backgroundFor(slide.image.id, "#27272a"),
                 }}
               >
-                <img
-                  src={slide.image.src}
-                  alt=""
-                  draggable={false}
-                  className="max-h-full max-w-full object-contain"
+                <SlideImage
+                  image={slide.image}
+                  edit={slide.edit}
+                  boxWidth={THUMB_WIDTH}
+                  boxHeight={THUMB_HEIGHT}
                 />
               </button>
             );
@@ -315,11 +600,11 @@ export function SlideView() {
             background: backgroundFor(draggedSlide.image.id, "#27272a"),
           }}
         >
-          <img
-            src={draggedSlide.image.src}
-            alt=""
-            draggable={false}
-            className="max-h-full max-w-full object-contain"
+          <SlideImage
+            image={draggedSlide.image}
+            edit={draggedSlide.edit}
+            boxWidth={drag.width}
+            boxHeight={drag.height}
           />
         </div>
       )}

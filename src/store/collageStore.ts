@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import type {
   CanvasRatio,
   CollageDocument,
+  ImageEdit,
   LayoutOption,
 } from "../types";
 import {
@@ -26,6 +27,7 @@ import { isImageFile } from "../lib/upload/extractImages";
 import { updateSplitRatio, snapRatio } from "../lib/layout/splitTree";
 import { copyCollagePngToClipboard, exportCollagePng } from "../lib/export/png";
 import { computeSmartOrganizePlan } from "../lib/layout/smartOrganize";
+import { isIdentityEdit } from "../lib/geometry/imageEdit";
 
 const HISTORY_LIMIT = 50;
 
@@ -37,6 +39,8 @@ export interface SlideSettings {
   cornerRadius: number;
   backgroundMode: "auto" | "custom";
   backgroundColor: string;
+  /** How long each slide shows during playback, in ms. */
+  slideDuration: number;
 }
 
 const DEFAULT_SLIDE_SETTINGS: SlideSettings = {
@@ -44,6 +48,7 @@ const DEFAULT_SLIDE_SETTINGS: SlideSettings = {
   cornerRadius: 2,
   backgroundMode: "auto",
   backgroundColor: "#18181b",
+  slideDuration: 1000,
 };
 
 interface CollageState {
@@ -87,6 +92,8 @@ interface CollageState {
   redo: () => void;
   setViewMode: (mode: ViewMode) => void;
   updateSlideSettings: (patch: Partial<SlideSettings>) => void;
+  /** Sets an image's slide crop/rotation; null resets it. */
+  setSlideEdit: (imageId: string, edit: ImageEdit | null) => void;
   exportPng: () => Promise<void>;
   copyPng: () => Promise<boolean>;
   canUndo: () => boolean;
@@ -262,6 +269,7 @@ export const useCollageStore = create<CollageState>()(
         const asset = state.document.images[imageId];
         if (asset) URL.revokeObjectURL(asset.src);
         delete state.document.images[imageId];
+        delete state.document.slideEdits[imageId];
 
         rebuildFramesForImages(state.document, orderedImageIds(state.document));
         clampGridRows(state.document);
@@ -567,6 +575,22 @@ export const useCollageStore = create<CollageState>()(
     updateSlideSettings: (patch) => {
       set((state) => {
         Object.assign(state.slideSettings, patch);
+      });
+    },
+
+    setSlideEdit: (imageId, edit) => {
+      set((state) => {
+        if (!state.document.images[imageId]) return;
+        const next = edit && !isIdentityEdit(edit) ? edit : undefined;
+        const prev = state.document.slideEdits[imageId];
+        if (JSON.stringify(prev) === JSON.stringify(next)) return;
+
+        pushHistory(state);
+        if (next) {
+          state.document.slideEdits[imageId] = next;
+        } else {
+          delete state.document.slideEdits[imageId];
+        }
       });
     },
 
