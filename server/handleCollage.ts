@@ -1,9 +1,9 @@
 import { nanoid } from "nanoid";
-import { json, jsonError, readJson } from "./http.ts";
-import { collageIdFromRequest, parseCreateBody, parseUpdateBody } from "./parse.ts";
-import { toCreatedCollage, toPublicCollage } from "./present.ts";
-import { getServiceClient } from "./supabase.ts";
-import { tokensMatch } from "./tokens.ts";
+import { json, jsonError, readJson } from "./http.js";
+import { collageIdFromRequest, parseCreateBody, parseUpdateBody } from "./parse.js";
+import { toCreatedCollage, toPublicCollage } from "./present.js";
+import { getServiceClient } from "./supabase.js";
+import { tokensMatch } from "./tokens.js";
 
 interface TokenRow {
   id: string;
