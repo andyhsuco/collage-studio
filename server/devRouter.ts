@@ -1,5 +1,5 @@
-import { json } from "./http.ts";
-import { handleCreate, handleRead, handleUpdate } from "./handleCollage.ts";
+import { json } from "./http.js";
+import { handleCreate, handleRead, handleUpdate } from "./handleCollage.js";
 
 /** Used by the Vite dev server so `/api/collages` hits the same handlers as Vercel. */
 export async function routeCollageApi(request: Request): Promise<Response> {

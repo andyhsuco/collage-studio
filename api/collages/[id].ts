@@ -1,5 +1,6 @@
-import { handleRead, handleUpdate } from "../../server/handleCollage.ts";
-import { json } from "../../server/http.ts";
+// .js specifiers match the files Vercel compiles into the Node function.
+import { handleRead, handleUpdate } from "../../server/handleCollage.js";
+import { json } from "../../server/http.js";
 
 /**
  * GET  /api/collages/:id — public read, never includes edit_token.

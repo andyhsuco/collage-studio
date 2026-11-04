@@ -1,5 +1,5 @@
-import type { CollageDocument } from "../src/types/index.ts";
-import { validateCollageDocument } from "../src/lib/persist/validateDocument.ts";
+import type { CollageDocument } from "../src/types/index.js";
+import { validateCollageDocument } from "../src/lib/persist/validateDocument.js";
 
 const SOURCE_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 

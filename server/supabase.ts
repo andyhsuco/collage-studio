@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { jsonError } from "./http.ts";
+import { jsonError } from "./http.js";
 
 let client: SupabaseClient | null = null;
 let cacheKey = "";
