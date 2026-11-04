@@ -74,7 +74,7 @@ function hitTestFrame(
   return null;
 }
 
-export function CollageCanvas() {
+export function CollageCanvas({ readOnly = false }: { readOnly?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -306,7 +306,7 @@ export function CollageCanvas() {
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (!document_.layoutTree) return;
+      if (readOnly || !document_.layoutTree) return;
       const { x, y } = toNormalized(e.clientX, e.clientY);
 
       if (cropFrameId) {
@@ -363,12 +363,12 @@ export function CollageCanvas() {
         selectFrame(null);
       }
     },
-    [document_, cropFrameId, toNormalized, selectFrame, prepareHistory],
+    [readOnly, document_, cropFrameId, toNormalized, selectFrame, prepareHistory],
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
-      if (!document_.layoutTree) return;
+      if (readOnly || !document_.layoutTree) return;
       const { x, y } = toNormalized(e.clientX, e.clientY);
 
       if (dragRef.current?.kind === "gutter") {
@@ -524,11 +524,13 @@ export function CollageCanvas() {
       canvasSize,
       prepareHistory,
       gridRowDragEnabled,
+      readOnly,
     ],
   );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
+      if (readOnly) return;
       if (dragRef.current?.kind === "gutter") {
         liveRatioRef.current = null;
       }
@@ -586,10 +588,11 @@ export function CollageCanvas() {
       setSwapDragGhost(null);
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     },
-    [document_.layoutTree, document_.gutter, document_.canvasPadding, toNormalized, swapFrameImages, moveFrameToRow, gridRowDragEnabled, rowDropTarget],
+    [readOnly, document_.layoutTree, document_.gutter, document_.canvasPadding, toNormalized, swapFrameImages, moveFrameToRow, gridRowDragEnabled, rowDropTarget],
   );
 
   const handlePointerLeave = useCallback((e: React.PointerEvent) => {
+    if (readOnly) return;
     if (dragRef.current?.kind === "swap" && dragRef.current.activated) {
       return;
     }
@@ -600,11 +603,11 @@ export function CollageCanvas() {
       dragRef.current = null;
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     }
-  }, []);
+  }, [readOnly]);
 
   const onDoubleClick = useCallback(
     (e: React.MouseEvent) => {
-      if (!document_.layoutTree) return;
+      if (readOnly || !document_.layoutTree) return;
       const { x, y } = toNormalized(e.clientX, e.clientY);
       const rects = resolveAllRects(document_.layoutTree, document_.gutter, document_.canvasPadding);
       const frameId = hitTestFrame(rects, x, y);
@@ -612,12 +615,12 @@ export function CollageCanvas() {
         enterCropMode(frameId);
       }
     },
-    [document_, toNormalized, enterCropMode],
+    [readOnly, document_, toNormalized, enterCropMode],
   );
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
-      if (!cropFrameId || !document_.layoutTree) return;
+      if (readOnly || !cropFrameId || !document_.layoutTree) return;
       e.preventDefault();
       const frame = document_.frames[cropFrameId];
       const image = document_.images[frame?.imageId ?? ""];
@@ -639,11 +642,12 @@ export function CollageCanvas() {
         cropCommitTimer.current = null;
       }, 400);
     },
-    [cropFrameId, document_, updateCrop, prepareHistory],
+    [readOnly, cropFrameId, document_, updateCrop, prepareHistory],
   );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (readOnly) return;
       if (e.key === "Escape" && cropFrameId) {
         exitCropMode();
       }
@@ -658,7 +662,7 @@ export function CollageCanvas() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cropFrameId, exitCropMode]);
+  }, [readOnly, cropFrameId, exitCropMode]);
 
   if (!document_.layoutTree) {
     return (
@@ -668,12 +672,14 @@ export function CollageCanvas() {
       >
         <div className="max-w-sm text-center">
           <p className="text-[15px] font-medium text-zinc-300">
-            Upload photos to begin
+            {readOnly ? "This collage has no layout yet." : "Upload photos to begin"}
           </p>
-          <p className="mt-2 text-[13px] text-zinc-600">
-            Drop photos anywhere, paste with ⌘V, or upload from the left panel.
-            Layouts generate automatically with consistent gutters.
-          </p>
+          {!readOnly && (
+            <p className="mt-2 text-[13px] text-zinc-600">
+              Drop photos anywhere, paste with ⌘V, or upload from the left panel.
+              Layouts generate automatically with consistent gutters.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -684,7 +690,7 @@ export function CollageCanvas() {
       ref={containerRef}
       className="flex flex-1 flex-col items-center justify-center overflow-hidden bg-[var(--bg-app)] p-6"
     >
-      {needsMorePhotos && (
+      {needsMorePhotos && !readOnly && (
         <p className="mb-3 text-[12px] text-zinc-500">
           {imageCount} of {MIN_PHOTOS} photos — add one more to unlock collage layouts
         </p>
@@ -696,7 +702,7 @@ export function CollageCanvas() {
         <canvas
           ref={canvasRef}
           className="block rounded-sm shadow-2xl shadow-black/40"
-          style={{ cursor }}
+          style={{ cursor: readOnly ? "default" : cursor }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -716,7 +722,7 @@ export function CollageCanvas() {
           swapSourceFrameId={swapSourceFrameId}
           swapTargetFrameId={swapTargetFrameId}
           onRemove={removeImage}
-          hidden={!!cropFrameId}
+          hidden={readOnly || !!cropFrameId}
         />
       </div>
       {swapDragGhost && (

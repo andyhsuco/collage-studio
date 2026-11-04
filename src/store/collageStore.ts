@@ -96,6 +96,10 @@ interface CollageState {
   setSlideEdit: (imageId: string, edit: ImageEdit | null) => void;
   exportPng: () => Promise<void>;
   copyPng: () => Promise<boolean>;
+  /** Replaces the open collage. Used when a saved document is loaded. */
+  loadDocument: (doc: CollageDocument) => void;
+  /** Swaps embedded image sources in place, without an undo step. */
+  adoptImageSources: (images: CollageDocument["images"]) => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
 }
@@ -600,6 +604,45 @@ export const useCollageStore = create<CollageState>()(
 
     copyPng: async () => {
       return copyCollagePngToClipboard(get().document);
+    },
+
+    loadDocument: (doc) => {
+      set((state) => {
+        state.document = structuredClone(doc);
+        state.past = [];
+        state.future = [];
+        state.selectedFrameId = null;
+        state.cropFrameId = null;
+        state.viewMode = "collage";
+        state.selectedPresetId = null;
+        state.layoutOptions =
+          doc.frameOrder.length >= MIN_PHOTOS
+            ? generateLayoutOptions(
+                doc.frameOrder,
+                doc.canvasRatio,
+                doc.customWidth,
+                doc.customHeight,
+              )
+            : [];
+      });
+    },
+
+    adoptImageSources: (images) => {
+      set((state) => {
+        for (const incoming of Object.values(images)) {
+          const image = state.document.images[incoming.id];
+          if (!image || image.src === incoming.src) continue;
+          image.src = incoming.src;
+          if (
+            (image.naturalWidth <= 0 || image.naturalHeight <= 0) &&
+            incoming.naturalWidth > 0 &&
+            incoming.naturalHeight > 0
+          ) {
+            image.naturalWidth = incoming.naturalWidth;
+            image.naturalHeight = incoming.naturalHeight;
+          }
+        }
+      });
     },
 
     canUndo: () => get().past.length > 0,
