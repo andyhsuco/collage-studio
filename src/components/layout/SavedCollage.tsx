@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { CollageCanvas } from "../canvas/CollageCanvas";
+import { SlideView } from "../canvas/SlideView";
 import { Button } from "../ui/primitives";
+import type { ViewMode } from "../../store/collageStore";
 import { AppShell } from "./AppShell";
 import { useAutosave } from "../../hooks/useCollagePersistence";
 import { loadSavedCollage } from "../../lib/persist/session";
@@ -53,7 +55,11 @@ function ReviewShell({
   banner: string | null;
 }) {
   const exportPng = useCollageStore((s) => s.exportPng);
+  const viewMode = useCollageStore((s) => s.viewMode);
+  const setViewMode = useCollageStore((s) => s.setViewMode);
   const hasLayout = useCollageStore((s) => s.document.layoutTree !== null);
+  const imageCount = useCollageStore((s) => Object.keys(s.document.images).length);
+  const canExport = viewMode === "slides" ? imageCount > 0 : hasLayout;
 
   useEffect(() => {
     const previous = document.title;
@@ -79,17 +85,33 @@ function ReviewShell({
             <span className="truncate text-[13px] text-zinc-500">{title}</span>
           )}
           <span className="text-[11px] uppercase tracking-wide text-zinc-600">View</span>
+          <div className="flex items-center gap-1 rounded-md bg-zinc-900 p-0.5">
+            {(["collage", "slides"] as ViewMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setViewMode(mode)}
+                className={`rounded px-2.5 py-1 text-[12px] capitalize transition-colors ${
+                  viewMode === mode
+                    ? "bg-zinc-100 text-zinc-900"
+                    : "text-zinc-500 hover:text-zinc-200"
+                }`}
+              >
+                {mode === "collage" ? "Collage" : "Slides"}
+              </button>
+            ))}
+          </div>
         </div>
         <Button
           size="sm"
           variant="primary"
           onClick={() => void exportPng()}
-          disabled={!hasLayout}
+          disabled={!canExport}
         >
           Export PNG
         </Button>
       </header>
-      <CollageCanvas readOnly />
+      {viewMode === "slides" ? <SlideView readOnly /> : <CollageCanvas readOnly />}
     </div>
   );
 }

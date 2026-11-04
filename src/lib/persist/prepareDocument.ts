@@ -1,4 +1,5 @@
 import type { CollageDocument } from "../../types/index.ts";
+import { normalizeCollageDocument } from "../slides/background.ts";
 import { utf8Bytes } from "./validateDocument.ts";
 
 /** Stay under Vercel's 4.5 MB request limit after JSON wrapping. */
@@ -123,11 +124,12 @@ async function embedLocalImages(
 export async function prepareDocumentForPersistence(
   doc: CollageDocument,
 ): Promise<CollageDocument> {
-  let next = await embedLocalImages(doc, PASSES[0], "missing");
+  const source = normalizeCollageDocument(doc);
+  let next = await embedLocalImages(source, PASSES[0], "missing");
   if (byteSize(next) <= MAX_DOC_BYTES) return next;
 
   for (const pass of PASSES) {
-    next = await embedLocalImages(doc, pass, "all-local");
+    next = await embedLocalImages(source, pass, "all-local");
     if (byteSize(next) <= MAX_DOC_BYTES) return next;
   }
 

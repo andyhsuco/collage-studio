@@ -10,6 +10,7 @@ import {
   rotateEdit,
 } from "../../lib/geometry/imageEdit";
 import { movedIndex, useSortableDrag } from "../../hooks/useSortableDrag";
+import { slideBackgroundFor } from "../../lib/slides/background";
 import { useCollageStore } from "../../store/collageStore";
 import type { ImageAsset, ImageEdit } from "../../types";
 import { Button } from "../ui/primitives";
@@ -162,15 +163,17 @@ function PauseIcon() {
   );
 }
 
-export function SlideView() {
+export function SlideView({ readOnly = false }: { readOnly?: boolean }) {
   const frameOrder = useCollageStore((s) => s.document.frameOrder);
   const frames = useCollageStore((s) => s.document.frames);
   const images = useCollageStore((s) => s.document.images);
   const slideEdits = useCollageStore((s) => s.document.slideEdits);
+  const slideBackgrounds = useCollageStore((s) => s.document.slideBackgrounds);
   const settings = useCollageStore((s) => s.slideSettings);
   const reorderFrames = useCollageStore((s) => s.reorderFrames);
   const setSlideEdit = useCollageStore((s) => s.setSlideEdit);
-  const [index, setIndex] = useState(0);
+  const index = useCollageStore((s) => s.slideIndex);
+  const setIndex = useCollageStore((s) => s.setSlideIndex);
   const [playing, setPlaying] = useState(false);
   const [playRun, setPlayRun] = useState(0);
   const [colors, setColors] = useState<Record<string, string>>({});
@@ -201,7 +204,7 @@ export function SlideView() {
   const hasEdit = !!current && current.image.id in slideEdits;
 
   const startCrop = () => {
-    if (!current || !canEdit) return;
+    if (readOnly || !current || !canEdit) return;
     setPlaying(false);
     setCropDraft({
       imageId: current.image.id,
@@ -231,7 +234,7 @@ export function SlideView() {
   };
 
   const rotate = (direction: 1 | -1) => {
-    if (!current || !canEdit) return;
+    if (readOnly || !current || !canEdit) return;
     if (!draft) {
       setSlideEdit(current.image.id, rotateEdit(current.edit, direction));
       return;
@@ -247,6 +250,7 @@ export function SlideView() {
 
   const { containerRef: stripRef, drag, getItemProps } =
     useSortableDrag<HTMLDivElement>((fromIndex, toIndex) => {
+      if (readOnly) return;
       reorderFrames(fromIndex, toIndex);
       setIndex(movedIndex(safeIndex, fromIndex, toIndex));
     });
@@ -279,6 +283,7 @@ export function SlideView() {
     slides.length,
     settings.slideDuration,
     playRun,
+    setIndex,
   ]);
 
   useEffect(() => {
@@ -346,6 +351,19 @@ export function SlideView() {
         }
         return;
       }
+      if (readOnly) {
+        if (event.key === " " && !(target instanceof HTMLButtonElement)) {
+          event.preventDefault();
+          togglePlay();
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          setIndex(Math.min(slides.length - 1, safeIndex + 1));
+        } else if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          setIndex(Math.max(0, safeIndex - 1));
+        }
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         const store = useCollageStore.getState();
@@ -359,10 +377,10 @@ export function SlideView() {
         togglePlay();
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        setIndex((value) => Math.min(slides.length - 1, value + 1));
+        setIndex(Math.min(slides.length - 1, safeIndex + 1));
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
-        setIndex((value) => Math.max(0, value - 1));
+        setIndex(Math.max(0, safeIndex - 1));
       }
     };
 
@@ -386,10 +404,12 @@ export function SlideView() {
     );
   }
 
-  const backgroundFor = (imageId: string, fallback: string) =>
-    settings.backgroundMode === "custom"
-      ? settings.backgroundColor
+  const backgroundFor = (imageId: string, fallback: string) => {
+    const background = slideBackgroundFor(slideBackgrounds, imageId);
+    return background.mode === "custom"
+      ? background.color
       : (colors[imageId] ?? fallback);
+  };
   const background = backgroundFor(current.image.id, "#18181b");
 
   return (
@@ -423,14 +443,14 @@ export function SlideView() {
               boxWidth={slideSize.width * settings.imageScale}
               boxHeight={slideSize.height * settings.imageScale}
               borderRadius={settings.cornerRadius}
-              onDoubleClick={canEdit ? startCrop : undefined}
+              onDoubleClick={!readOnly && canEdit ? startCrop : undefined}
             />
           )}
         </div>
       </div>
 
       <div className="flex shrink-0 flex-col items-center gap-3 px-4 py-4">
-        {draft ? (
+        {draft && !readOnly ? (
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1 rounded-md bg-zinc-900 p-0.5">
               {CROP_ASPECTS.map((option) => (
@@ -502,7 +522,7 @@ export function SlideView() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setIndex((value) => Math.max(0, value - 1))}
+              onClick={() => setIndex(Math.max(0, safeIndex - 1))}
               disabled={safeIndex === 0}
               aria-label="Previous slide"
             >
@@ -537,13 +557,15 @@ export function SlideView() {
               size="sm"
               variant="outline"
               onClick={() =>
-                setIndex((value) => Math.min(slides.length - 1, value + 1))
+                setIndex(Math.min(slides.length - 1, safeIndex + 1))
               }
               disabled={safeIndex >= slides.length - 1}
               aria-label="Next slide"
             >
               →
             </Button>
+            {!readOnly && (
+            <>
             <div className="h-4 w-px bg-zinc-800" />
             <div className="flex items-center gap-1">
               <Button
@@ -589,6 +611,8 @@ export function SlideView() {
                 Reset
               </Button>
             </div>
+            </>
+            )}
           </div>
         )}
 
@@ -601,7 +625,7 @@ export function SlideView() {
         >
           {slides.map((slide, slideIndex) => {
             const selected = slideIndex === safeIndex;
-            const sortable = getItemProps(slideIndex);
+            const sortable = readOnly ? {} : getItemProps(slideIndex);
             return (
               <button
                 key={slide.frameId}
@@ -610,7 +634,9 @@ export function SlideView() {
                 onClick={() => setIndex(slideIndex)}
                 aria-label={`Slide ${slideIndex + 1}`}
                 aria-current={selected ? "true" : undefined}
-                className={`flex h-12 w-[5.25rem] shrink-0 cursor-grab items-center justify-center overflow-hidden rounded-sm ${
+                className={`flex h-12 w-[5.25rem] shrink-0 items-center justify-center overflow-hidden rounded-sm ${
+                  readOnly ? "cursor-pointer" : "cursor-grab"
+                } ${
                   drag?.fromIndex === slideIndex
                     ? "opacity-30 ring-1 ring-zinc-700"
                     : selected
@@ -618,7 +644,7 @@ export function SlideView() {
                       : "opacity-70 ring-1 ring-zinc-700 hover:opacity-100"
                 }`}
                 style={{
-                  ...sortable.style,
+                  ...("style" in sortable ? sortable.style ?? {} : {}),
                   background: backgroundFor(slide.image.id, "#27272a"),
                 }}
               >

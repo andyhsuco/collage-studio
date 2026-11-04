@@ -33,7 +33,8 @@ Uploaded and pasted photos are blob URLs, which only work in the tab that create
 
 - `/` is the editor, same as before.
 - Share saves the current collage, copies the view link, and shows the edit link. The address bar becomes `/c/<id>?edit=<token>`, and further edits autosave.
-- `/c/<id>` is a read-only view with PNG export.
+- `/c/<id>` is a read-only view with PNG export. Slides there use each slide’s own background.
+- In the editor, the Slides background control changes the selected slide. “Apply to all slides” copies it. Older collages with one global slide background open with that setting on every slide. Slide PNG export uses the current slide’s background.
 - `/c/<id>?edit=<token>` opens the editor.
 
 `npm run dev` serves those `/api` routes as well as the UI. `vercel.json` rewrites `/c/*` to `index.html` so a refresh on Vercel still loads the app. The API itself is the `/api` serverless functions, not the rewrite.

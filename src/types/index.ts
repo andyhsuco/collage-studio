@@ -24,6 +24,12 @@ export interface ImageEdit {
   crop: Rect;
 }
 
+/** Background for one slide. `color` is kept in auto mode so Custom can restore it. */
+export interface SlideBackground {
+  mode: "auto" | "custom";
+  color: string;
+}
+
 export interface Frame {
   id: string;
   imageId: string;
@@ -61,6 +67,12 @@ export interface CollageDocument {
   gridRowGroups: string[][] | null;
   /** Per-image crop/rotation used in slide view, keyed by image id. */
   slideEdits: Record<string, ImageEdit>;
+  /**
+   * Per-slide background, keyed by image id. A missing entry means Auto.
+   * Older JSON may instead have a global `slideSettings` or `slideBackground`;
+   * the loader copies that onto every slide.
+   */
+  slideBackgrounds: Record<string, SlideBackground>;
 }
 
 export interface LayoutOption {
@@ -112,5 +124,6 @@ export function createDefaultDocument(): CollageDocument {
     gridRows: null,
     gridRowGroups: null,
     slideEdits: {},
+    slideBackgrounds: {},
   };
 }

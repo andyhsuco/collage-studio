@@ -1,4 +1,5 @@
 import type { CollageDocument } from "../../types/index.ts";
+import { normalizeCollageDocument } from "../slides/background.ts";
 import { validateCollageDocument } from "./validateDocument.ts";
 
 export class PersistRequestError extends Error {
@@ -115,7 +116,7 @@ export async function fetchCollage(
     id: payload.id,
     title: typeof payload.title === "string" ? payload.title : null,
     source: typeof payload.source === "string" ? payload.source : "editor",
-    doc: validated.doc,
+    doc: normalizeCollageDocument(validated.doc),
     canEdit: payload.canEdit === true,
     createdAt: typeof payload.createdAt === "string" ? payload.createdAt : "",
     updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : "",

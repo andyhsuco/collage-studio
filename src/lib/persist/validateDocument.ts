@@ -181,5 +181,19 @@ export function validateCollageDocument(input: unknown): ValidationResult {
     if (!isRect(edit.crop)) return fail("A slide crop is invalid.");
   }
 
+  // Absent on collages saved before per-slide backgrounds. The loader migrates those.
+  if (input.slideBackgrounds !== undefined) {
+    if (!isRecord(input.slideBackgrounds)) return fail("Slide backgrounds are invalid.");
+    for (const background of Object.values(input.slideBackgrounds)) {
+      if (!isRecord(background)) return fail("A slide background is invalid.");
+      if (background.mode !== "auto" && background.mode !== "custom") {
+        return fail("A slide background mode is invalid.");
+      }
+      if (typeof background.color !== "string" || background.color.length > 64) {
+        return fail("A slide background color is invalid.");
+      }
+    }
+  }
+
   return { ok: true, doc: input as unknown as CollageDocument };
 }
