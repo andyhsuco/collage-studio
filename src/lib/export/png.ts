@@ -1,7 +1,19 @@
-import type { CollageDocument } from "../../types";
+import type { CollageDocument, ImageAsset, ImageEdit } from "../../types";
 import { getCanvasAspect } from "../../types";
+import { dominantColor } from "../color/dominant";
 import { computeCoverDrawParams, roundRectPath } from "../geometry/crop";
+import {
+  editedSize,
+  fitSize,
+  IDENTITY_EDIT,
+  rotatedSize,
+} from "../geometry/imageEdit";
 import { resolveAllRects } from "../layout/splitTree";
+import {
+  clampSlideIndex,
+  orderedSlideImages,
+  slideBackgroundFor,
+} from "../slides/background";
 
 const imageCache = new Map<string, HTMLImageElement>();
 
@@ -114,6 +126,135 @@ export async function exportCollagePng(
   a.download = `collage-studio-${Date.now()}.png`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function slideFill(
+  doc: CollageDocument,
+  image: ImageAsset,
+): Promise<string> {
+  const background = slideBackgroundFor(doc.slideBackgrounds, image.id);
+  if (background.mode === "custom") return background.color;
+  try {
+    const img = await loadImage(image.src);
+    return dominantColor(img, image.src);
+  } catch {
+    return "#18181b";
+  }
+}
+
+function drawEditedImage(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  image: ImageAsset,
+  edit: ImageEdit,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+  radius: number,
+) {
+  ctx.save();
+  roundRectPath(ctx, dx, dy, dw, dh, radius);
+  ctx.clip();
+
+  const rotated = rotatedSize(image, edit.rotation);
+  const scale = rotated.width * edit.crop.width > 0
+    ? dw / (rotated.width * edit.crop.width)
+    : 1;
+  const rotatedW = rotated.width * scale;
+  const rotatedH = rotated.height * scale;
+  const imageW = image.naturalWidth * scale;
+  const imageH = image.naturalHeight * scale;
+  const left = dx - edit.crop.x * rotatedW + (rotatedW - imageW) / 2;
+  const top = dy - edit.crop.y * rotatedH + (rotatedH - imageH) / 2;
+
+  ctx.translate(left + imageW / 2, top + imageH / 2);
+  ctx.rotate((edit.rotation * Math.PI) / 180);
+  ctx.drawImage(img, -imageW / 2, -imageH / 2, imageW, imageH);
+  ctx.restore();
+}
+
+/** One 16:9 slide, using that slide's own background. */
+export async function renderSlideCanvas(
+  doc: CollageDocument,
+  index: number,
+  appearance: { imageScale: number; cornerRadius: number },
+  longEdge = 2048,
+): Promise<HTMLCanvasElement | null> {
+  const slides = orderedSlideImages(doc);
+  const image = slides[clampSlideIndex(doc, index)];
+  if (!image) return null;
+
+  const width = longEdge;
+  const height = Math.round((longEdge * 9) / 16);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.fillStyle = await slideFill(doc, image);
+  ctx.fillRect(0, 0, width, height);
+
+  if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+    const edit = doc.slideEdits[image.id] ?? IDENTITY_EDIT;
+    const natural = editedSize(image, edit);
+    const boxW = width * appearance.imageScale;
+    const boxH = height * appearance.imageScale;
+    const size = fitSize(natural.width, natural.height, boxW, boxH);
+    const img = await loadImage(image.src);
+    drawEditedImage(
+      ctx,
+      img,
+      image,
+      edit,
+      (width - size.width) / 2,
+      (height - size.height) / 2,
+      size.width,
+      size.height,
+      appearance.cornerRadius * (width / 800),
+    );
+  }
+
+  return canvas;
+}
+
+async function slideBlob(
+  doc: CollageDocument,
+  index: number,
+  appearance: { imageScale: number; cornerRadius: number },
+): Promise<Blob | null> {
+  const canvas = await renderSlideCanvas(doc, index, appearance);
+  if (!canvas) return null;
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/png");
+  });
+}
+
+export async function exportSlidePng(
+  doc: CollageDocument,
+  index: number,
+  appearance: { imageScale: number; cornerRadius: number },
+): Promise<void> {
+  const blob = await slideBlob(doc, index, appearance);
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `collage-studio-slide-${clampSlideIndex(doc, index) + 1}.png`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function copySlidePngToClipboard(
+  doc: CollageDocument,
+  index: number,
+  appearance: { imageScale: number; cornerRadius: number },
+): Promise<boolean> {
+  const blob = await slideBlob(doc, index, appearance);
+  if (!blob || !navigator.clipboard?.write) return false;
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+  return true;
 }
 
 export async function copyCollagePngToClipboard(

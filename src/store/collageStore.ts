@@ -25,9 +25,20 @@ import {
 import { resolveAllRects } from "../lib/layout/splitTree";
 import { isImageFile } from "../lib/upload/extractImages";
 import { updateSplitRatio, snapRatio } from "../lib/layout/splitTree";
-import { copyCollagePngToClipboard, exportCollagePng } from "../lib/export/png";
+import {
+  copyCollagePngToClipboard,
+  copySlidePngToClipboard,
+  exportCollagePng,
+  exportSlidePng,
+} from "../lib/export/png";
 import { computeSmartOrganizePlan } from "../lib/layout/smartOrganize";
 import { isIdentityEdit } from "../lib/geometry/imageEdit";
+import {
+  clampSlideIndex,
+  normalizeCollageDocument,
+  slideBackgroundFor,
+} from "../lib/slides/background";
+import type { SlideBackground } from "../types";
 
 const HISTORY_LIMIT = 50;
 
@@ -37,8 +48,6 @@ export interface SlideSettings {
   /** Fraction of the slide's width/height the image may fill (0–1). */
   imageScale: number;
   cornerRadius: number;
-  backgroundMode: "auto" | "custom";
-  backgroundColor: string;
   /** How long each slide shows during playback, in ms. */
   slideDuration: number;
 }
@@ -46,8 +55,6 @@ export interface SlideSettings {
 const DEFAULT_SLIDE_SETTINGS: SlideSettings = {
   imageScale: 0.9,
   cornerRadius: 2,
-  backgroundMode: "auto",
-  backgroundColor: "#18181b",
   slideDuration: 1000,
 };
 
@@ -55,6 +62,8 @@ interface CollageState {
   document: CollageDocument;
   viewMode: ViewMode;
   slideSettings: SlideSettings;
+  /** Index into the slide strip. Background edits apply to this slide. */
+  slideIndex: number;
   selectedFrameId: string | null;
   cropFrameId: string | null;
   selectedPresetId: string | null;
@@ -92,10 +101,19 @@ interface CollageState {
   redo: () => void;
   setViewMode: (mode: ViewMode) => void;
   updateSlideSettings: (patch: Partial<SlideSettings>) => void;
+  setSlideIndex: (index: number) => void;
+  /** Changes the background of one slide, keyed by its image id. */
+  setSlideBackground: (imageId: string, patch: Partial<SlideBackground>) => void;
+  /** Copies one slide's background onto every slide. */
+  applySlideBackgroundToAll: (imageId: string) => void;
   /** Sets an image's slide crop/rotation; null resets it. */
   setSlideEdit: (imageId: string, edit: ImageEdit | null) => void;
   exportPng: () => Promise<void>;
   copyPng: () => Promise<boolean>;
+  /** Replaces the open collage. Used when a saved document is loaded. */
+  loadDocument: (doc: CollageDocument) => void;
+  /** Swaps embedded image sources in place, without an undo step. */
+  adoptImageSources: (images: CollageDocument["images"]) => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
 }
@@ -183,6 +201,7 @@ export const useCollageStore = create<CollageState>()(
     document: createDefaultDocument(),
     viewMode: "collage",
     slideSettings: DEFAULT_SLIDE_SETTINGS,
+    slideIndex: 0,
     selectedFrameId: null,
     cropFrameId: null,
     selectedPresetId: null,
@@ -270,6 +289,7 @@ export const useCollageStore = create<CollageState>()(
         if (asset) URL.revokeObjectURL(asset.src);
         delete state.document.images[imageId];
         delete state.document.slideEdits[imageId];
+        delete state.document.slideBackgrounds[imageId];
 
         rebuildFramesForImages(state.document, orderedImageIds(state.document));
         clampGridRows(state.document);
@@ -578,6 +598,43 @@ export const useCollageStore = create<CollageState>()(
       });
     },
 
+    setSlideIndex: (index) => {
+      set((state) => {
+        state.slideIndex = index;
+      });
+    },
+
+    setSlideBackground: (imageId, patch) => {
+      set((state) => {
+        if (!state.document.images[imageId]) return;
+        if (!state.document.slideBackgrounds) state.document.slideBackgrounds = {};
+        const current = slideBackgroundFor(state.document.slideBackgrounds, imageId);
+        const next = { ...current, ...patch };
+        const stored = state.document.slideBackgrounds[imageId];
+        if (stored && stored.mode === next.mode && stored.color === next.color) return;
+        pushHistory(state);
+        state.document.slideBackgrounds[imageId] = next;
+      });
+    },
+
+    applySlideBackgroundToAll: (imageId) => {
+      set((state) => {
+        if (!state.document.images[imageId]) return;
+        const source = slideBackgroundFor(state.document.slideBackgrounds, imageId);
+        const ids = Object.keys(state.document.images);
+        const unchanged = ids.every((id) => {
+          const background = slideBackgroundFor(state.document.slideBackgrounds, id);
+          return background.mode === source.mode && background.color === source.color;
+        });
+        if (unchanged) return;
+        pushHistory(state);
+        if (!state.document.slideBackgrounds) state.document.slideBackgrounds = {};
+        for (const id of ids) {
+          state.document.slideBackgrounds[id] = { ...source };
+        }
+      });
+    },
+
     setSlideEdit: (imageId, edit) => {
       set((state) => {
         if (!state.document.images[imageId]) return;
@@ -595,11 +652,65 @@ export const useCollageStore = create<CollageState>()(
     },
 
     exportPng: async () => {
-      await exportCollagePng(get().document);
+      const { document: doc, viewMode, slideIndex, slideSettings } = get();
+      if (viewMode === "slides") {
+        await exportSlidePng(doc, clampSlideIndex(doc, slideIndex), slideSettings);
+        return;
+      }
+      await exportCollagePng(doc);
     },
 
     copyPng: async () => {
-      return copyCollagePngToClipboard(get().document);
+      const { document: doc, viewMode, slideIndex, slideSettings } = get();
+      if (viewMode === "slides") {
+        return copySlidePngToClipboard(
+          doc,
+          clampSlideIndex(doc, slideIndex),
+          slideSettings,
+        );
+      }
+      return copyCollagePngToClipboard(doc);
+    },
+
+    loadDocument: (doc) => {
+      const normalized = normalizeCollageDocument(doc);
+      set((state) => {
+        state.document = structuredClone(normalized);
+        state.past = [];
+        state.future = [];
+        state.selectedFrameId = null;
+        state.cropFrameId = null;
+        state.viewMode = "collage";
+        state.slideIndex = 0;
+        state.selectedPresetId = null;
+        state.layoutOptions =
+          doc.frameOrder.length >= MIN_PHOTOS
+            ? generateLayoutOptions(
+                doc.frameOrder,
+                doc.canvasRatio,
+                doc.customWidth,
+                doc.customHeight,
+              )
+            : [];
+      });
+    },
+
+    adoptImageSources: (images) => {
+      set((state) => {
+        for (const incoming of Object.values(images)) {
+          const image = state.document.images[incoming.id];
+          if (!image || image.src === incoming.src) continue;
+          image.src = incoming.src;
+          if (
+            (image.naturalWidth <= 0 || image.naturalHeight <= 0) &&
+            incoming.naturalWidth > 0 &&
+            incoming.naturalHeight > 0
+          ) {
+            image.naturalWidth = incoming.naturalWidth;
+            image.naturalHeight = incoming.naturalHeight;
+          }
+        }
+      });
     },
 
     canUndo: () => get().past.length > 0,

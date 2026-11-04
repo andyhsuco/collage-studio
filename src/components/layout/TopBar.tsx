@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Button } from "../ui/primitives";
 import { useCollageStore, type ViewMode } from "../../store/collageStore";
+import { usePersistSession } from "../../hooks/useCollagePersistence";
+import { shareCollage } from "../../lib/persist/session";
+import { ShareDialog } from "./ShareDialog";
 
 const VIEW_MODES: { value: ViewMode; label: string }[] = [
   { value: "collage", label: "Collage" },
@@ -39,6 +42,8 @@ export function TopBar() {
   const exportPng = useCollageStore((s) => s.exportPng);
   const copyPng = useCollageStore((s) => s.copyPng);
   const hasLayout = useCollageStore((s) => s.document.layoutTree !== null);
+  const imageCount = useCollageStore((s) => Object.keys(s.document.images).length);
+  const session = usePersistSession();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -49,6 +54,7 @@ export function TopBar() {
   };
 
   return (
+    <>
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800 bg-[var(--bg-panel)] px-4">
       <div className="flex items-center gap-6">
         <h1 className="text-[14px] font-medium tracking-tight text-zinc-100">
@@ -73,6 +79,29 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-2">
+        {session.saveStatus !== "idle" && (
+          <span
+            className={`max-w-40 truncate text-[11px] ${
+              session.saveStatus === "error" ? "text-red-300" : "text-zinc-500"
+            }`}
+            title={session.saveError ?? undefined}
+          >
+            {session.saveStatus === "saving"
+              ? "Saving…"
+              : session.saveStatus === "saved"
+                ? "Saved"
+                : "Save failed"}
+          </span>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void shareCollage()}
+          disabled={imageCount === 0}
+          title={imageCount === 0 ? "Add photos to share" : "Save and copy a link"}
+        >
+          Share
+        </Button>
         <Button
           size="sm"
           variant="ghost"
@@ -116,5 +145,7 @@ export function TopBar() {
         </Button>
       </div>
     </header>
+    <ShareDialog />
+    </>
   );
 }
