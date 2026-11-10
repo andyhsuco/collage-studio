@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import type { CollageDocument } from "../src/types/index.js";
 import { json, jsonError, readJson } from "./http.js";
 import { collageIdFromRequest, parseCreateBody, parseUpdateBody } from "./parse.js";
 import { toCreatedCollage, toPublicCollage } from "./present.js";
@@ -20,10 +21,69 @@ interface PublicRow {
   updated_at: string;
 }
 
+export interface StoredCollage {
+  id: string;
+  editToken: string;
+  title: string | null;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Inserts a collage and returns the edit token once.
+ * Retries once if the generated id collides.
+ */
+export async function createCollageRecord(input: {
+  doc: CollageDocument;
+  title: string | null;
+  source: string;
+}): Promise<{ ok: true; collage: StoredCollage } | { ok: false; response: Response }> {
+  const supabase = getServiceClient();
+  if (supabase instanceof Response) return { ok: false, response: supabase };
+
+  const now = new Date().toISOString();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const id = nanoid(12);
+    const editToken = nanoid(32);
+    const { error } = await supabase.from("collages").insert({
+      id,
+      doc: input.doc,
+      title: input.title,
+      source: input.source,
+      edit_token: editToken,
+      created_at: now,
+      updated_at: now,
+    });
+
+    if (!error) {
+      return {
+        ok: true,
+        collage: {
+          id,
+          editToken,
+          title: input.title,
+          source: input.source,
+          createdAt: now,
+          updatedAt: now,
+        },
+      };
+    }
+
+    if (error.code !== "23505") {
+      console.error("insert collage failed", error.code);
+      return { ok: false, response: jsonError("Could not save the collage.", 500) };
+    }
+  }
+
+  console.error("insert collage failed", "23505");
+  return { ok: false, response: jsonError("Could not save the collage.", 500) };
+}
+
 /**
  * POST /api/collages
  * Body: { doc, title?, source? }
- * `source` defaults to "editor". A later bot can send "bot" on the same route.
+ * `source` defaults to "editor". POST /api/ingest stores source "ingest".
  * The edit token is returned only here.
  */
 export async function handleCreate(request: Request): Promise<Response> {
@@ -33,45 +93,9 @@ export async function handleCreate(request: Request): Promise<Response> {
   const parsed = parseCreateBody(body.value);
   if (!parsed.ok) return jsonError(parsed.error, 400);
 
-  const supabase = getServiceClient();
-  if (supabase instanceof Response) return supabase;
-
-  const now = new Date().toISOString();
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const id = nanoid(12);
-    const editToken = nanoid(32);
-    const { error } = await supabase.from("collages").insert({
-      id,
-      doc: parsed.body.doc,
-      title: parsed.body.title,
-      source: parsed.body.source,
-      edit_token: editToken,
-      created_at: now,
-      updated_at: now,
-    });
-
-    if (!error) {
-      return json(
-        toCreatedCollage({
-          id,
-          editToken,
-          title: parsed.body.title,
-          source: parsed.body.source,
-          createdAt: now,
-          updatedAt: now,
-        }),
-        201,
-      );
-    }
-
-    if (error.code !== "23505") {
-      console.error("insert collage failed", error.code);
-      return jsonError("Could not save the collage.", 500);
-    }
-  }
-
-  console.error("insert collage failed", "23505");
-  return jsonError("Could not save the collage.", 500);
+  const saved = await createCollageRecord(parsed.body);
+  if (!saved.ok) return saved.response;
+  return json(toCreatedCollage(saved.collage), 201);
 }
 
 /**

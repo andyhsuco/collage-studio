@@ -1,9 +1,9 @@
-import type { CollageDocument, ImageAsset, Rect } from "../../types";
-import { getCanvasAspect } from "../../types";
-import { coverFillRatio } from "../geometry/crop";
-import { distributeBalancedIndices } from "./balancedGrid";
-import { buildGridTreeFromRowGroups } from "./templates";
-import { resolveAllRects } from "./splitTree";
+import type { CollageDocument, ImageAsset, Rect } from "../../types/index.js";
+import { getCanvasAspect } from "../../types/index.js";
+import { coverFillRatio } from "../geometry/cover.js";
+import { distributeBalancedIndices } from "./balancedGrid.js";
+import { buildGridTreeFromRowGroups } from "./templates.js";
+import { resolveAllRects } from "./splitTree.js";
 
 export interface SmartOrganizePlan {
   rows: number;

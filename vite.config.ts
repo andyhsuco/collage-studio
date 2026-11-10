@@ -10,7 +10,8 @@ function collageApiDev(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url ?? "";
-        if (!url.startsWith("/api/collages")) {
+        const path = url.split("?")[0] ?? "";
+        if (path !== "/api/ingest" && !path.startsWith("/api/collages")) {
           next();
           return;
         }
@@ -22,7 +23,7 @@ function collageApiDev(): Plugin {
           if (!res.headersSent) {
             res.statusCode = 500;
             res.setHeader("content-type", "application/json; charset=utf-8");
-            res.end(JSON.stringify({ error: "Could not save the collage." }));
+            res.end(JSON.stringify({ error: "Collage API request failed." }));
           }
         });
       });

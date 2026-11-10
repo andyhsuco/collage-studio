@@ -1,4 +1,4 @@
-import type { GutterHandle, Rect, SplitNode } from "../../types";
+import type { GutterHandle, Rect, SplitNode } from "../../types/index.js";
 
 /** Content area inset by canvas padding, independent of the internal gutter. */
 export function canvasContentBounds(padding: number): Rect {
