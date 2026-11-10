@@ -47,8 +47,13 @@ Set both on the Vercel project (Production and Preview). They are server-only.
 | --- | --- |
 | `SUPABASE_URL` | Project URL, `https://<ref>.supabase.co` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key |
+| `INGEST_SECRET` | Shared secret for `POST /api/ingest`. If it is unset, that route returns 503. |
 
-If either is missing, the API responds with `503` and Share shows that storage is not configured. For local saves, put the same names in `.env.local` (see `.env.example`). Do not commit the service role key, and do not prefix either name with `VITE_`.
+If either Supabase variable is missing, the API responds with `503` and Share shows that storage is not configured. For local saves, put the same names in `.env.local` (see `.env.example`). Do not commit the service role key, and do not prefix either name with `VITE_`.
+
+### Ingest
+
+`POST /api/ingest` builds a collage from public https image URLs and returns absolute view and edit links. The caller sends `Authorization: Bearer <INGEST_SECRET>`. The row is stored with `source` `ingest`. Set `INGEST_SECRET` on the Vercel project (Production) before the live route will accept requests. The curl example and request fields are in [docs/ingest.md](docs/ingest.md). The secret in that doc is a placeholder.
 
 ### Database migration
 

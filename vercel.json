@@ -4,5 +4,10 @@
       "source": "/c/:path*",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "functions": {
+    "api/ingest.ts": {
+      "maxDuration": 30
+    }
+  }
 }

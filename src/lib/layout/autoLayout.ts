@@ -1,11 +1,11 @@
-import type { CanvasRatio, LayoutOption, SplitNode } from "../../types";
-import { getCanvasAspect, RATIO_VALUES } from "../../types";
-import { countLeaves } from "./splitTree";
+import type { CanvasRatio, LayoutOption, SplitNode } from "../../types/index.js";
+import { getCanvasAspect, RATIO_VALUES } from "../../types/index.js";
+import { countLeaves } from "./splitTree.js";
 import {
   getTemplatesForCount,
   instantiateTemplate,
   type TemplateDefinition,
-} from "./templates";
+} from "./templates.js";
 
 function scoreTemplate(
   tree: SplitNode,

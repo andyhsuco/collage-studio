@@ -1,10 +1,10 @@
-import type { SplitNode } from "../../types";
+import type { SplitNode } from "../../types/index.js";
 import {
   chunkIds,
   computeBestGridLayout,
   distributeBalancedIds,
   gridLayoutPlanForRows,
-} from "./balancedGrid";
+} from "./balancedGrid.js";
 
 export type TemplateFactory = (
   frameIds: string[],
