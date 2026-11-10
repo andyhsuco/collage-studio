@@ -1,5 +1,5 @@
-import { MAX_PHOTOS } from "../../types/index.ts";
-import type { CollageDocument } from "../../types/index.ts";
+import { MAX_PHOTOS } from "../../types/index.js";
+import type { CollageDocument } from "../../types/index.js";
 
 const CANVAS_RATIOS = new Set(["1:1", "4:5", "16:9", "9:16", "custom"]);
 const DATA_PREFIXES = [

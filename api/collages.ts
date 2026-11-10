@@ -1,5 +1,7 @@
-import { handleCreate } from "../server/handleCollage.ts";
-import { json } from "../server/http.ts";
+// .js specifiers: Vercel emits this file as collages.js and does not rewrite
+// .ts imports, so Node would look for a .ts file that is not in the function bundle.
+import { handleCreate } from "../server/handleCollage.js";
+import { json } from "../server/http.js";
 
 /**
  * POST /api/collages — create a collage.
