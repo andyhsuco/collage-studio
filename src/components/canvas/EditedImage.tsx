@@ -46,7 +46,10 @@ export function EditedImage({
         ...style,
       }}
     >
+      {/* New element per source. Reusing the node keeps the previous bitmap
+          painted at this frame's size until the next load finishes. */}
       <img
+        key={image.src}
         src={image.src}
         alt=""
         draggable={false}
