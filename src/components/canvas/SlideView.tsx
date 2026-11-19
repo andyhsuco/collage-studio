@@ -51,8 +51,10 @@ function SlideImage({
   onDoubleClick?: () => void;
 }) {
   if (!image.naturalWidth || !image.naturalHeight) {
+    // Remount per source so a not-yet-decoded photo can't keep the previous bitmap.
     return (
       <img
+        key={image.src}
         src={image.src}
         alt=""
         draggable={false}
