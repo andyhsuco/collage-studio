@@ -16,6 +16,7 @@ import {
 } from "../slides/background";
 
 const imageCache = new Map<string, HTMLImageElement>();
+const readableLoads = new Map<string, Promise<HTMLImageElement>>();
 
 export function loadImage(src: string): Promise<HTMLImageElement> {
   const cached = imageCache.get(src);
@@ -32,8 +33,102 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+function loadElement(src: string, anonymous: boolean): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (anonymous) img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not load the image."));
+    img.src = src;
+  });
+}
+
+/** True when getImageData can read this bitmap. A tainted canvas returns false. */
+function bitmapIsReadable(img: HTMLImageElement): boolean {
+  if (!img.naturalWidth || !img.naturalHeight) return false;
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return false;
+  try {
+    ctx.drawImage(img, 0, 0, 1, 1);
+    ctx.getImageData(0, 0, 1, 1);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function remoteUrl(src: string): boolean {
+  return src.startsWith("https://") || src.startsWith("http://");
+}
+
+async function loadViaProxy(src: string): Promise<HTMLImageElement> {
+  const response = await fetch(`/api/image-proxy?url=${encodeURIComponent(src)}`);
+  if (!response.ok) throw new Error("Image proxy failed.");
+  const blob = await response.blob();
+  if (!blob.size) throw new Error("Image proxy was empty.");
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const img = await loadElement(objectUrl, false);
+    if (!bitmapIsReadable(img)) throw new Error("Image proxy was unreadable.");
+    return img;
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl);
+    throw error;
+  }
+}
+
+async function loadReadableUncached(src: string): Promise<HTMLImageElement> {
+  if (!remoteUrl(src)) {
+    const img = await loadElement(src, false);
+    if (!bitmapIsReadable(img)) throw new Error("Image was unreadable.");
+    return img;
+  }
+
+  try {
+    const img = await loadElement(src, true);
+    if (bitmapIsReadable(img)) return img;
+  } catch {
+    // The host sent no CORS headers, or the browser cached an opaque response.
+  }
+
+  if (!src.startsWith("https://")) throw new Error("Could not read the image.");
+  return loadViaProxy(src);
+}
+
+/**
+ * Image whose pixels can be read. Remote urls load with `crossOrigin="anonymous"`
+ * and, if that taints the canvas, through the same-origin image proxy.
+ * Failures are not cached.
+ */
+export function loadReadableImage(src: string): Promise<HTMLImageElement> {
+  const existing = readableLoads.get(src);
+  if (existing) return existing;
+
+  const pending = loadReadableUncached(src).catch((error: unknown) => {
+    readableLoads.delete(src);
+    throw error;
+  });
+  readableLoads.set(src, pending);
+  return pending;
+}
+
 export async function preloadImages(doc: CollageDocument): Promise<void> {
-  await Promise.all(Object.values(doc.images).map((img) => loadImage(img.src)));
+  await Promise.all(
+    Object.values(doc.images).map((img) => loadReadableImage(img.src).catch(() => undefined)),
+  );
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    try {
+      canvas.toBlob((blob) => resolve(blob), "image/png");
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
 export async function renderCollageCanvas(
@@ -74,11 +169,19 @@ export async function renderCollageCanvas(
     const rect = rects.get(frameId);
     if (!frame || !image || !rect) continue;
 
-    const img = await loadImage(image.src);
     const px = rect.x * width;
     const py = rect.y * height;
     const pw = rect.width * width;
     const ph = rect.height * height;
+
+    let img: HTMLImageElement;
+    try {
+      img = await loadReadableImage(image.src);
+    } catch {
+      ctx.fillStyle = "#27272a";
+      ctx.fillRect(px, py, pw, ph);
+      continue;
+    }
 
     ctx.save();
     roundRectPath(ctx, px, py, pw, ph, radius);
@@ -107,10 +210,7 @@ export async function renderCollageBlob(
 ): Promise<Blob | null> {
   const canvas = await renderCollageCanvas(doc, longEdge);
   if (!canvas) return null;
-
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), "image/png");
-  });
+  return canvasToPngBlob(canvas);
 }
 
 export async function exportCollagePng(
@@ -135,7 +235,7 @@ async function slideFill(
   const background = slideBackgroundFor(doc.slideBackgrounds, image.id);
   if (background.mode === "custom") return background.color;
   try {
-    const img = await loadImage(image.src);
+    const img = await loadReadableImage(image.src);
     return dominantColor(img, image.src);
   } catch {
     return "#18181b";
@@ -202,18 +302,22 @@ export async function renderSlideCanvas(
     const boxW = width * appearance.imageScale;
     const boxH = height * appearance.imageScale;
     const size = fitSize(natural.width, natural.height, boxW, boxH);
-    const img = await loadImage(image.src);
-    drawEditedImage(
-      ctx,
-      img,
-      image,
-      edit,
-      (width - size.width) / 2,
-      (height - size.height) / 2,
-      size.width,
-      size.height,
-      appearance.cornerRadius * (width / 800),
-    );
+    try {
+      const img = await loadReadableImage(image.src);
+      drawEditedImage(
+        ctx,
+        img,
+        image,
+        edit,
+        (width - size.width) / 2,
+        (height - size.height) / 2,
+        size.width,
+        size.height,
+        appearance.cornerRadius * (width / 800),
+      );
+    } catch {
+      // Leave the background fill. Drawing an unreadable image would taint the export.
+    }
   }
 
   return canvas;
@@ -226,9 +330,7 @@ async function slideBlob(
 ): Promise<Blob | null> {
   const canvas = await renderSlideCanvas(doc, index, appearance);
   if (!canvas) return null;
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), "image/png");
-  });
+  return canvasToPngBlob(canvas);
 }
 
 export async function exportSlidePng(
@@ -272,4 +374,5 @@ export async function copyCollagePngToClipboard(
 
 export function clearImageCache() {
   imageCache.clear();
+  readableLoads.clear();
 }

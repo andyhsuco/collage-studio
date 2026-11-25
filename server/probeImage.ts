@@ -230,52 +230,187 @@ function timeoutSignal(ms: number): { signal: AbortSignal; cancel: () => void } 
   return { signal: controller.signal, cancel: () => clearTimeout(timer) };
 }
 
+export const IMAGE_PROXY_MAX_BYTES = 4_000_000;
+export const IMAGE_PROXY_TIMEOUT_MS = 12_000;
+
+export type FetchedImage =
+  | { ok: true; bytes: Uint8Array; contentType: string }
+  | { ok: false; status: number; reason: string };
+
+type OpenResult = { ok: true; response: Response } | { ok: false; reason: string };
+
+export function defaultProxyDeps(): ProbeDeps {
+  return {
+    ...defaultProbeDeps(),
+    timeoutMs: IMAGE_PROXY_TIMEOUT_MS,
+    maxBytes: IMAGE_PROXY_MAX_BYTES,
+  };
+}
+
+/**
+ * Follows redirects itself so each hop is checked against the public-host rules.
+ * The caller reads the body.
+ */
+async function openPublicImage(raw: string, deps: ProbeDeps, signal: AbortSignal): Promise<OpenResult> {
+  let current = raw;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    const allowed = await assertPublicImageUrl(current, deps.lookup);
+    if (!allowed.ok) return allowed;
+    current = allowed.url;
+
+    const response = await deps.fetch(current, {
+      signal,
+      redirect: "manual",
+      headers: {
+        accept: "image/jpeg,image/png,image/webp,image/gif,image/*;q=0.1",
+        "user-agent": "CollageStudioIngest/1.0",
+      },
+    });
+
+    if (isRedirect(response.status)) {
+      const location = response.headers.get("location");
+      await response.body?.cancel().catch(() => undefined);
+      if (!location) return { ok: false, reason: "Image redirect was missing a location." };
+      if (hop === MAX_REDIRECTS) return { ok: false, reason: "Image URL redirected too many times." };
+      current = new URL(location, current).toString();
+      continue;
+    }
+
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return { ok: false, reason: `Image request failed (${response.status}).` };
+    }
+    return { ok: true, response };
+  }
+  return { ok: false, reason: "Image URL redirected too many times." };
+}
+
+function failureStatus(reason: string): number {
+  if (reason === "Image request timed out.") return 504;
+  if (reason.startsWith("Image type must be")) return 415;
+  if (reason.startsWith("Image request failed")) return 502;
+  if (
+    reason === "Could not fetch the image." ||
+    reason === "Could not read the image." ||
+    reason === "Image response was empty." ||
+    reason === "Could not read image dimensions."
+  ) {
+    return 502;
+  }
+  return 400;
+}
+
+function proxyContentType(type: string): string {
+  if (type === "jpg") return "image/jpeg";
+  return `image/${type}`;
+}
+
+/** Full image bytes, capped, for the same-origin canvas proxy. */
+async function readImageBytes(response: Response, maxBytes: number): Promise<FetchedImage> {
+  if (!contentTypeAllowed(response.headers.get("content-type"))) {
+    await response.body?.cancel().catch(() => undefined);
+    return { ok: false, status: 415, reason: "Image type must be jpeg, png, webp, or gif." };
+  }
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    return { ok: false, status: 413, reason: "Image is too large to proxy." };
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return { ok: false, status: 502, reason: "Image response was empty." };
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let failed: FetchedImage | null = null;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      if (total + value.byteLength > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        failed = { ok: false, status: 413, reason: "Image is too large to proxy." };
+        break;
+      }
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  } catch {
+    failed = { ok: false, status: 502, reason: "Could not read the image." };
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // The reader was already released.
+    }
+  }
+  if (failed) return failed;
+  if (total === 0) return { ok: false, status: 502, reason: "Image response was empty." };
+
+  const bytes = concat(chunks, total);
+  const parsed = dimensionsFromBytes(bytes);
+  if (typeof parsed !== "object") {
+    return { ok: false, status: 415, reason: "Image type must be jpeg, png, webp, or gif." };
+  }
+  return { ok: true, bytes, contentType: proxyContentType(parsed.type) };
+}
+
+async function withTimeout<T>(
+  timeoutMs: number,
+  run: (signal: AbortSignal) => Promise<T>,
+  onError: (error: unknown, timedOut: boolean) => T,
+): Promise<T> {
+  const timeout = timeoutSignal(timeoutMs);
+  try {
+    return await run(timeout.signal);
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    const timedOut = timeout.signal.aborted || name === "TimeoutError" || name === "AbortError";
+    return onError(error, timedOut);
+  } finally {
+    timeout.cancel();
+  }
+}
+
 /**
  * Fetches just enough of an image to read jpeg, png, webp, or gif dimensions.
  * Stops at `maxBytes` and aborts at `timeoutMs`.
  */
 export async function probeImageUrl(raw: string, deps: ProbeDeps = defaultProbeDeps()): Promise<ProbeResult> {
-  const timeout = timeoutSignal(deps.timeoutMs);
-  let current = raw;
-  try {
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-      const allowed = await assertPublicImageUrl(current, deps.lookup);
-      if (!allowed.ok) return allowed;
-      current = allowed.url;
+  return withTimeout(
+    deps.timeoutMs,
+    async (signal) => {
+      const opened = await openPublicImage(raw, deps, signal);
+      if (!opened.ok) return opened;
+      return readImage(opened.response, deps.maxBytes);
+    },
+    (_error, timedOut) => ({
+      ok: false,
+      reason: timedOut ? "Image request timed out." : "Could not fetch the image.",
+    }),
+  );
+}
 
-      const response = await deps.fetch(current, {
-        signal: timeout.signal,
-        redirect: "manual",
-        headers: {
-          accept: "image/jpeg,image/png,image/webp,image/gif,image/*;q=0.1",
-          "user-agent": "CollageStudioIngest/1.0",
-        },
-      });
-
-      if (isRedirect(response.status)) {
-        const location = response.headers.get("location");
-        await response.body?.cancel().catch(() => undefined);
-        if (!location) return { ok: false, reason: "Image redirect was missing a location." };
-        if (hop === MAX_REDIRECTS) return { ok: false, reason: "Image URL redirected too many times." };
-        current = new URL(location, current).toString();
-        continue;
-      }
-
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => undefined);
-        return { ok: false, reason: `Image request failed (${response.status}).` };
-      }
-      return await readImage(response, deps.maxBytes);
-    }
-    return { ok: false, reason: "Image URL redirected too many times." };
-  } catch (error) {
-    if (timeout.signal.aborted) return { ok: false, reason: "Image request timed out." };
-    const name = error instanceof Error ? error.name : "";
-    if (name === "TimeoutError" || name === "AbortError") {
-      return { ok: false, reason: "Image request timed out." };
-    }
-    return { ok: false, reason: "Could not fetch the image." };
-  } finally {
-    timeout.cancel();
-  }
+/**
+ * Downloads a public https image for the same-origin proxy.
+ * Rejects private hosts, non-images, and bodies over `maxBytes` instead of returning a partial file.
+ */
+export async function fetchPublicImage(
+  raw: string,
+  deps: ProbeDeps = defaultProxyDeps(),
+): Promise<FetchedImage> {
+  return withTimeout(
+    deps.timeoutMs,
+    async (signal) => {
+      const opened = await openPublicImage(raw, deps, signal);
+      if (!opened.ok) return { ok: false, status: failureStatus(opened.reason), reason: opened.reason };
+      return readImageBytes(opened.response, deps.maxBytes);
+    },
+    (_error, timedOut) => ({
+      ok: false,
+      status: timedOut ? 504 : 502,
+      reason: timedOut ? "Image request timed out." : "Could not fetch the image.",
+    }),
+  );
 }

@@ -22,7 +22,13 @@ export function dominantColor(img: HTMLImageElement, cacheKey = img.src): string
   if (!ctx) return fallback;
 
   ctx.drawImage(img, 0, 0, size, size);
-  const { data } = ctx.getImageData(0, 0, size, size);
+  let data: Uint8ClampedArray;
+  try {
+    data = ctx.getImageData(0, 0, size, size).data;
+  } catch {
+    // A tainted canvas throws. Leave it uncached so a later CORS-clean load can succeed.
+    return fallback;
+  }
 
   const buckets = new Map<
     number,

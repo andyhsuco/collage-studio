@@ -31,6 +31,8 @@ A collage can be saved and opened again from a link. `POST /api/collages` stores
 
 Uploaded and pasted photos are blob URLs, which only work in the tab that created them. On save they are resized and embedded as data URLs, with a 3.5 MB cap and a clear error if the collage is still too big. `https` and `http` image URLs are stored as links. Nothing is uploaded to Supabase Storage.
 
+Auto slide backgrounds sample each photo’s dominant color. Remote images are loaded again with `crossOrigin="anonymous"` so the canvas stays readable. If that host sends no CORS headers, the browser fetches a same-origin copy from `GET /api/image-proxy?url=`. That route only downloads public https images (jpeg, png, webp, or gif, up to 4 MB) and refuses private hosts.
+
 - `/` is the editor, same as before.
 - Share saves the current collage, copies the view link, and shows the edit link. The address bar becomes `/c/<id>?edit=<token>`, and further edits autosave.
 - `/c/<id>` is a read-only view with PNG export. Slides there use each slide’s own background.

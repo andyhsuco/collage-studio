@@ -1,10 +1,16 @@
+import { handleCreate, handleRead, handleUpdate } from "./handleCollage.js";
+import { handleImageProxy } from "./handleImageProxy.js";
 import { handleIngest } from "./handleIngest.js";
 import { json } from "./http.js";
-import { handleCreate, handleRead, handleUpdate } from "./handleCollage.js";
 
-/** Used by the Vite dev server so `/api/collages` and `/api/ingest` hit the same handlers as Vercel. */
+/** Used by the Vite dev server so `/api/collages`, `/api/ingest`, and `/api/image-proxy` hit the same handlers as Vercel. */
 export async function routeCollageApi(request: Request): Promise<Response> {
   const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+
+  if (path === "/api/image-proxy") {
+    if (request.method === "GET") return handleImageProxy(request);
+    return json({ error: "Method not allowed." }, 405, { allow: "GET" });
+  }
 
   if (path === "/api/ingest") {
     if (request.method === "POST") return handleIngest(request);

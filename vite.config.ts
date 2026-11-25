@@ -11,7 +11,11 @@ function collageApiDev(): Plugin {
       server.middlewares.use((req, res, next) => {
         const url = req.url ?? "";
         const path = url.split("?")[0] ?? "";
-        if (path !== "/api/ingest" && !path.startsWith("/api/collages")) {
+        if (
+          path !== "/api/ingest" &&
+          path !== "/api/image-proxy" &&
+          !path.startsWith("/api/collages")
+        ) {
           next();
           return;
         }

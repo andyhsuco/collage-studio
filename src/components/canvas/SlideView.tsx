@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { dominantColor } from "../../lib/color/dominant";
-import { loadImage } from "../../lib/export/png";
+import { loadReadableImage } from "../../lib/export/png";
 import {
   aspectCrop,
   editedSize,
@@ -318,7 +318,7 @@ export function SlideView({ readOnly = false }: { readOnly?: boolean }) {
     void Promise.all(
       slides.map(async (slide) => {
         try {
-          const img = await loadImage(slide.image.src);
+          const img = await loadReadableImage(slide.image.src);
           return [slide.image.id, dominantColor(img, slide.image.src)] as const;
         } catch {
           return [slide.image.id, "#18181b"] as const;

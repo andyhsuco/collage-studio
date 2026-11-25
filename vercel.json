@@ -8,6 +8,9 @@
   "functions": {
     "api/ingest.ts": {
       "maxDuration": 30
+    },
+    "api/image-proxy.ts": {
+      "maxDuration": 15
     }
   }
 }
